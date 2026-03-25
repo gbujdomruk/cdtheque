@@ -611,10 +611,10 @@ async function lookupBarcode(code) {
     // q= est plus fiable que barcode= sur l'API Discogs
     const cleanCode = code.replace(/\D/g, '');
     const res = await fetch(
-      `https://api.discogs.com/database/search?q=${cleanCode}&type=release&per_page=5&page=1&token=${DISCOGS_TOKEN}`,
+      `https://api.discogs.com/database/search?q=${cleanCode}&type=release&per_page=5&page=1`,
       {headers: {
-        'User-Agent': 'CDtheque/1.0 +https://github.com',
-        'Accept': 'application/vnd.discogs.v2.plaintext+json'
+        'Authorization': `Discogs token=${DISCOGS_TOKEN}`,
+        'User-Agent': 'CDtheque/1.0'
       }}
     );
     if (res.ok) {
@@ -660,8 +660,7 @@ async function lookupBarcode(code) {
   try {
     const res = await fetch(
       `https://musicbrainz.org/ws/2/release/?query=barcode:${code}&fmt=json&limit=1`,
-        'User-Agent': 'CDtheque/1.0 +https://github.com',
-        'Accept': 'application/vnd.discogs.v2.plaintext+json'
+      {headers: {'User-Agent': 'CDtheque/1.0'}}
     );
     if (res.ok) {
       const data = await res.json();
@@ -669,8 +668,7 @@ async function lookupBarcode(code) {
         const releaseId = data.releases[0].id;
         const fullRes = await fetch(
           `https://musicbrainz.org/ws/2/release/${releaseId}?fmt=json&inc=artist-credits+release-groups+genres+tags`,
-        'User-Agent': 'CDtheque/1.0 +https://github.com',
-        'Accept': 'application/vnd.discogs.v2.plaintext+json'
+          {headers: {'User-Agent': 'CDtheque/1.0'}}
         );
         if (!fullRes.ok) throw new Error();
         const r = await fullRes.json();
@@ -1007,6 +1005,12 @@ iz.addEventListener('drop',e=>{e.preventDefault();iz.classList.remove('dragover'
 // ═══ INIT ═════════════════════════════════════════════════
 loadLibrary();
 
+// ═══ SERVICE WORKER (PWA offline) ════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
