@@ -477,49 +477,66 @@ function showScanStatus(type, msg) {
 
 // ═══ RECHERCHE CODE-BARRES ════════════════════════════════
 
-// Détection intelligente du genre musical
-function detectGenre(release, title, artist) {
-  // 1. Tags MusicBrainz (les plus fiables)
-  const tags = [
-    ...(release.tags || []),
-    ...(release['release-group']?.tags || [])
-  ].sort((a, b) => (b.count || 0) - (a.count || 0));
+// Mapping MusicBrainz genres → genres localisés
+const GENRE_MAP = {
+  'classical':               'Classique',
+  'baroque':                 'Classique',
+  'romantic':                'Classique',
+  'contemporary classical':  'Classique',
+  'opera':                   'Classique',
+  'choral':                  'Classique',
+  'chamber music':           'Classique',
+  'orchestral':              'Classique',
+  'jazz':                    'Jazz',
+  'bebop':                   'Jazz',
+  'swing':                   'Jazz',
+  'hard bop':                'Jazz',
+  'fusion':                  'Jazz',
+  'blues':                   'Blues',
+  'rock':                    'Rock',
+  'hard rock':               'Rock',
+  'alternative rock':        'Rock',
+  'progressive rock':        'Rock',
+  'indie rock':              'Rock',
+  'punk':                    'Rock',
+  'grunge':                  'Rock',
+  'heavy metal':             'Rock',
+  'metal':                   'Rock',
+  'pop':                     'Pop',
+  'synth-pop':               'Pop',
+  'dance-pop':               'Pop',
+  'indie pop':               'Pop',
+  'electronic':              'Électro',
+  'electronica':             'Électro',
+  'techno':                  'Électro',
+  'house':                   'Électro',
+  'ambient':                 'Électro',
+  'hip-hop':                 'R&B',
+  'hip hop':                 'R&B',
+  'rap':                     'R&B',
+  'r&b':                     'R&B',
+  'soul':                    'R&B',
+  'funk':                    'R&B',
+  'reggae':                  'Reggae',
+  'ska':                     'Reggae',
+  'folk':                    'Folk',
+  'country':                 'Folk',
+  'world music':             'World',
+  'latin':                   'World',
+  'bossa nova':              'World',
+  'flamenco':                'World',
+  'soundtrack':              'Bande originale',
+};
 
-  const tagNames = tags.map(t => t.name.toLowerCase());
-
-  const genreMap = [
-    {keys: ['classical','classique','orchestral','symphony','opera','chamber music','baroque','romantic period','contemporary classical'], label: 'Classique'},
-    {keys: ['jazz','bebop','swing','blues jazz','fusion'], label: 'Jazz'},
-    {keys: ['rock','hard rock','alternative rock','progressive rock','indie rock','punk','grunge','metal','heavy metal'], label: 'Rock'},
-    {keys: ['pop','synth-pop','dance-pop','indie pop'], label: 'Pop'},
-    {keys: ['electronic','electro','techno','house','ambient','dance'], label: 'Électro'},
-    {keys: ['hip-hop','hip hop','rap','r&b','soul','rhythm and blues'], label: 'R&B'},
-    {keys: ['reggae','ska','dub'], label: 'Reggae'},
-    {keys: ['folk','country','acoustic','singer-songwriter'], label: 'Folk'},
-    {keys: ['blues'], label: 'Blues'},
-    {keys: ['world music','latin','bossa nova','flamenco','african'], label: 'World'},
-  ];
-
-  for (const {keys, label} of genreMap) {
-    if (tagNames.some(t => keys.some(k => t.includes(k)))) return label;
+// Résout un genre MusicBrainz en genre localisé
+function resolveGenre(mbGenre) {
+  const low = mbGenre.toLowerCase();
+  // Recherche exacte d'abord, puis partielle
+  if (GENRE_MAP[low]) return GENRE_MAP[low];
+  for (const [key, label] of Object.entries(GENRE_MAP)) {
+    if (low.includes(key) || key.includes(low)) return label;
   }
-
-  // 2. Artistes classiques connus
-  const classicalArtists = ['karajan','mutter','bernstein','barenboim','rostropovich','yo-yo ma','itzhak perlman','claudio abbado','pavarotti','callas','rattle','haitink','giulini','böhm','kleiber','solti','menuhin','ashkenazy','pollini','argerich','brendel','richter','horowitz','gould','oistrakh','heifetz','rubinstein','szell','stokowski','toscanini','furtwängler','celibidache','marriner','dutoit','previn','ozawa','mehta','maazel','levine','thielemann','jansons'];
-  const artistLow = artist.toLowerCase();
-  const titleLow = title.toLowerCase();
-  if (classicalArtists.some(a => artistLow.includes(a))) return 'Classique';
-
-  // 3. Mots-clés dans le titre (concerto, symphonie, sonate…)
-  const classicalKeywords = ['concerto','symphony','symphonie','sonate','sonata','quartet','quatuor','trio','opus','op.','bach','mozart','beethoven','brahms','chopin','schubert','schumann','debussy','ravel','mahler','bruckner','wagner','verdi','puccini','handel','vivaldi','haydn','liszt','tchaikovsky','dvorak','sibelius','strauss','prokofiev','shostakovich','bartok'];
-  if (classicalKeywords.some(k => titleLow.includes(k) || artistLow.includes(k))) return 'Classique';
-
-  // 4. Release group primary type
-  const rgType = release['release-group']?.['primary-type']?.toLowerCase() || '';
-  const rgSecondary = (release['release-group']?.['secondary-types'] || []).map(t => t.toLowerCase());
-  if (rgSecondary.includes('soundtrack')) return 'Bande originale';
-
-  return '';
+  return null;
 }
 
 async function lookupBarcode(code) {
@@ -555,8 +572,38 @@ async function lookupBarcode(code) {
         const latinAlias = aliases.find(a => isLatin(a.name));
         if (!isLatin(artist) && latinAlias) artist = latinAlias.name;
 
-        // Détection intelligente du genre
-        const genre = detectGenre(best, title, artist);
+        // Récupère le genre officiel depuis l'artiste MusicBrainz (deux étapes)
+        const artistId = best['artist-credit']?.[0]?.artist?.id || '';
+        const releaseGroupId = best['release-group']?.id || '';
+        let genre = '';
+        // Étape 1 : genres du release-group (les plus précis)
+        if (releaseGroupId) {
+          try {
+            const rgRes = await fetch(`https://musicbrainz.org/ws/2/release-group/${releaseGroupId}?fmt=json&inc=genres+tags`, {headers:{'User-Agent':'CDtheque/1.0'}});
+            if (rgRes.ok) {
+              const rgData = await rgRes.json();
+              const genres = (rgData.genres || []).sort((a,b)=>(b.count||0)-(a.count||0));
+              for (const g of genres) {
+                const resolved = resolveGenre(g.name);
+                if (resolved) { genre = resolved; break; }
+              }
+            }
+          } catch(e) {}
+        }
+        // Étape 2 : si pas trouvé, genres de l'artiste
+        if (!genre && artistId) {
+          try {
+            const aRes = await fetch(`https://musicbrainz.org/ws/2/artist/${artistId}?fmt=json&inc=genres+tags`, {headers:{'User-Agent':'CDtheque/1.0'}});
+            if (aRes.ok) {
+              const aData = await aRes.json();
+              const genres = (aData.genres || []).sort((a,b)=>(b.count||0)-(a.count||0));
+              for (const g of genres) {
+                const resolved = resolveGenre(g.name);
+                if (resolved) { genre = resolved; break; }
+              }
+            }
+          } catch(e) {}
+        }
 
         // Tentative pochette Cover Art Archive
         let cover = '';
