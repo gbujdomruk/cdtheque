@@ -476,6 +476,52 @@ function showScanStatus(type, msg) {
 }
 
 // ═══ RECHERCHE CODE-BARRES ════════════════════════════════
+
+// Détection intelligente du genre musical
+function detectGenre(release, title, artist) {
+  // 1. Tags MusicBrainz (les plus fiables)
+  const tags = [
+    ...(release.tags || []),
+    ...(release['release-group']?.tags || [])
+  ].sort((a, b) => (b.count || 0) - (a.count || 0));
+
+  const tagNames = tags.map(t => t.name.toLowerCase());
+
+  const genreMap = [
+    {keys: ['classical','classique','orchestral','symphony','opera','chamber music','baroque','romantic period','contemporary classical'], label: 'Classique'},
+    {keys: ['jazz','bebop','swing','blues jazz','fusion'], label: 'Jazz'},
+    {keys: ['rock','hard rock','alternative rock','progressive rock','indie rock','punk','grunge','metal','heavy metal'], label: 'Rock'},
+    {keys: ['pop','synth-pop','dance-pop','indie pop'], label: 'Pop'},
+    {keys: ['electronic','electro','techno','house','ambient','dance'], label: 'Électro'},
+    {keys: ['hip-hop','hip hop','rap','r&b','soul','rhythm and blues'], label: 'R&B'},
+    {keys: ['reggae','ska','dub'], label: 'Reggae'},
+    {keys: ['folk','country','acoustic','singer-songwriter'], label: 'Folk'},
+    {keys: ['blues'], label: 'Blues'},
+    {keys: ['world music','latin','bossa nova','flamenco','african'], label: 'World'},
+  ];
+
+  for (const {keys, label} of genreMap) {
+    if (tagNames.some(t => keys.some(k => t.includes(k)))) return label;
+  }
+
+  // 2. Artistes classiques connus
+  const classicalArtists = ['karajan','mutter','bernstein','barenboim','rostropovich','yo-yo ma','itzhak perlman','claudio abbado','pavarotti','callas','rattle','haitink','giulini','böhm','kleiber','solti','menuhin','ashkenazy','pollini','argerich','brendel','richter','horowitz','gould','oistrakh','heifetz','rubinstein','szell','stokowski','toscanini','furtwängler','celibidache','marriner','dutoit','previn','ozawa','mehta','maazel','levine','thielemann','jansons'];
+  const artistLow = artist.toLowerCase();
+  const titleLow = title.toLowerCase();
+  if (classicalArtists.some(a => artistLow.includes(a))) return 'Classique';
+
+  // 3. Mots-clés dans le titre (concerto, symphonie, sonate…)
+  const classicalKeywords = ['concerto','symphony','symphonie','sonate','sonata','quartet','quatuor','trio','opus','op.','bach','mozart','beethoven','brahms','chopin','schubert','schumann','debussy','ravel','mahler','bruckner','wagner','verdi','puccini','handel','vivaldi','haydn','liszt','tchaikovsky','dvorak','sibelius','strauss','prokofiev','shostakovich','bartok'];
+  if (classicalKeywords.some(k => titleLow.includes(k) || artistLow.includes(k))) return 'Classique';
+
+  // 4. Release group primary type
+  const rgType = release['release-group']?.['primary-type']?.toLowerCase() || '';
+  const rgSecondary = (release['release-group']?.['secondary-types'] || []).map(t => t.toLowerCase());
+  if (rgSecondary.includes('soundtrack')) return 'Bande originale';
+
+  return '';
+}
+
 async function lookupBarcode(code) {
   if (!code || !code.trim()) { showNotif('Entrez un code-barres'); return; }
   code = code.trim();
@@ -483,26 +529,43 @@ async function lookupBarcode(code) {
   showScanStatus('searching', '🔍 Recherche pour ' + code + ' …');
   document.getElementById('scan-result-wrap').innerHTML = '';
 
-  // MusicBrainz
+  // MusicBrainz — on récupère plusieurs résultats pour trouver la version latine
   try {
-    const res = await fetch(`https://musicbrainz.org/ws/2/release/?query=barcode:${code}&fmt=json&limit=1`, {
+    const res = await fetch(`https://musicbrainz.org/ws/2/release/?query=barcode:${code}&fmt=json&limit=5&inc=artist-credits+aliases+tags+genres+release-groups`, {
       headers: {'User-Agent': 'CDtheque/1.0 (local app)'}
     });
     if (res.ok) {
       const data = await res.json();
       if (data.releases && data.releases.length) {
-        const r = data.releases[0];
-        const title = r.title || '';
-        const artist = r['artist-credit']?.[0]?.artist?.name || '';
-        const year = r.date ? parseInt(r.date) : null;
-        const mbid = r.id;
+        const isLatin = s => /^[\u0000-\u024F\u1E00-\u1EFF\s\d\p{P}]*$/u.test(s);
+        let best = data.releases[0];
+        for (const r of data.releases) {
+          const t = r.title || '';
+          const a = r['artist-credit']?.[0]?.artist?.name || '';
+          if (isLatin(t) && isLatin(a)) { best = r; break; }
+        }
+
+        let title = best.title || '';
+        let artist = best['artist-credit']?.[0]?.artist?.name || '';
+        const year = best.date ? parseInt(best.date) : null;
+        const mbid = best.id;
+
+        // Si titre/artiste encore en cyrillique, cherche un alias latin
+        const aliases = best['artist-credit']?.[0]?.artist?.aliases || [];
+        const latinAlias = aliases.find(a => isLatin(a.name));
+        if (!isLatin(artist) && latinAlias) artist = latinAlias.name;
+
+        // Détection intelligente du genre
+        const genre = detectGenre(best, title, artist);
+
         // Tentative pochette Cover Art Archive
         let cover = '';
         try {
           const caRes = await fetch(`https://coverartarchive.org/release/${mbid}/front-250`, {redirect:'follow'});
           if (caRes.ok) cover = caRes.url;
         } catch(e) {}
-        showFoundResult({title, artist, year, genre:'', cover, discogs:'', code, source:'MusicBrainz'});
+
+        showFoundResult({title, artist, year, genre, cover, discogs:'', code, source:'MusicBrainz'});
         return;
       }
     }
