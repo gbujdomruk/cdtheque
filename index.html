@@ -283,12 +283,64 @@
   </div>
 </div>
 
+<!-- SCREEN RÉGLAGES -->
+<div class="screen" id="screen-settings">
+  <div class="header">
+    <div class="logo">Réglages</div>
+    <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;">configuration</div>
+  </div>
+  <div class="scroll-area">
+    <div class="form-body">
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;">🔑 Token Discogs</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px;">
+          Votre token personnel permet de rechercher les CDs via Discogs (15M+ albums).<br>
+          Il est sauvegardé <strong style="color:var(--text)">uniquement sur votre appareil</strong>, jamais dans le code.
+        </div>
+        <div id="token-status" style="font-family:'Space Mono',monospace;font-size:11px;padding:8px 12px;border-radius:8px;margin-bottom:12px;"></div>
+        <div class="form-group">
+          <div class="form-label">TOKEN DISCOGS</div>
+          <input class="form-input" id="discogs-token-input" type="password" placeholder="Collez votre token ici…" autocomplete="off" autocorrect="off" spellcheck="false">
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;line-height:1.5;">
+          Pour obtenir un token gratuit :<br>
+          1. Créez un compte sur <strong style="color:var(--text)">discogs.com</strong><br>
+          2. Allez dans Paramètres → Développeurs<br>
+          3. Cliquez "Générer un token"
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn-action primary" onclick="saveDiscogsToken()" style="flex:2;">💾 Enregistrer</button>
+          <button class="btn-action danger" onclick="clearDiscogsToken()" style="flex:1;">Effacer</button>
+        </div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;">📚 Collection</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button class="btn-action" onclick="exportCSV()" style="width:100%;">⬇ Exporter en CSV</button>
+          <button class="btn-action danger" onclick="clearLibrary()" style="width:100%;">🗑 Effacer toute la collection</button>
+        </div>
+      </div>
+
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:12px;color:var(--muted);line-height:1.7;">
+        <strong style="color:var(--text);">Ma CDthèque</strong> — Application personnelle.<br>
+        Données stockées localement sur votre appareil.<br>
+        Métadonnées : Discogs · MusicBrainz · Cover Art Archive.
+      </div>
+
+      <div style="height:80px;"></div>
+    </div>
+  </div>
+</div>
+
 <!-- BOTTOM NAV -->
 <div class="bottom-nav">
   <button class="nav-btn active" id="nav-list" onclick="showScreen('screen-list')"><span class="nav-icon">💿</span>Ma liste</button>
   <button class="nav-btn" id="nav-scan" onclick="showScreen('screen-scan')"><span class="nav-icon">📷</span>Scanner</button>
   <button class="nav-btn" id="nav-add" onclick="showScreen('screen-add')"><span class="nav-icon">➕</span>Ajouter</button>
   <button class="nav-btn" id="nav-stats" onclick="showScreen('screen-stats')"><span class="nav-icon">📊</span>Stats</button>
+  <button class="nav-btn" id="nav-settings" onclick="showScreen('screen-settings')"><span class="nav-icon">⚙️</span>Réglages</button>
 </div>
 
 <script>
@@ -546,9 +598,61 @@ async function lookupBarcode(code) {
   showScanStatus('searching', '🔍 Recherche pour ' + code + ' …');
   document.getElementById('scan-result-wrap').innerHTML = '';
 
-  // MusicBrainz — recherche par code-barres
+  // Discogs — recherche par code-barres (base de 15M+ releases)
   try {
-    // Étape 1 : cherche le release par barcode
+    const DISCOGS_TOKEN = localStorage.getItem('discogs_token') || '';
+    if (!DISCOGS_TOKEN) {
+      showScanStatus('notfound', '⚙️ Aucun token Discogs configuré. Allez dans Réglages pour en ajouter un.');
+      return;
+    }
+    const res = await fetch(
+      `https://api.discogs.com/database/search?barcode=${code}&type=release&per_page=5&page=1`,
+      {headers: {
+        'Authorization': `Discogs token=${DISCOGS_TOKEN}`,
+        'User-Agent': 'CDtheque/1.0'
+      }}
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data.results && data.results.length) {
+        // Prend le premier résultat (le plus pertinent)
+        const r = data.results[0];
+
+        const title = r.title
+          ? r.title.includes(' - ') ? r.title.split(' - ').slice(1).join(' - ') : r.title
+          : '';
+        const artist = r.title && r.title.includes(' - ')
+          ? r.title.split(' - ')[0]
+          : '';
+
+        const year = r.year ? parseInt(r.year) : null;
+
+        // Genre : Discogs fournit styles (plus précis) et genres
+        let genre = '';
+        const styles = r.style || [];
+        const genres = r.genre || [];
+        // Cherche d'abord dans les styles (plus précis), puis genres
+        for (const s of [...styles, ...genres]) {
+          const resolved = resolveGenre(s);
+          if (resolved) { genre = resolved; break; }
+        }
+        // Si pas résolu, prend le premier genre Discogs tel quel
+        if (!genre && genres.length) genre = genres[0];
+
+        // Pochette Discogs (haute qualité)
+        const cover = r.cover_image || r.thumb || '';
+
+        // ID Discogs pour lien direct
+        const discogsId = r.id ? String(r.id) : '';
+
+        showFoundResult({title, artist, year, genre, cover, discogs: discogsId, code, source:'Discogs'});
+        return;
+      }
+    }
+  } catch(e) { console.warn('Discogs error', e); }
+
+  // Fallback MusicBrainz si Discogs ne trouve pas
+  try {
     const res = await fetch(
       `https://musicbrainz.org/ws/2/release/?query=barcode:${code}&fmt=json&limit=1`,
       {headers: {'User-Agent': 'CDtheque/1.0'}}
@@ -557,85 +661,50 @@ async function lookupBarcode(code) {
       const data = await res.json();
       if (data.releases && data.releases.length) {
         const releaseId = data.releases[0].id;
-
-        // Étape 2 : récupère le release complet avec toutes les infos nécessaires
         const fullRes = await fetch(
-          `https://musicbrainz.org/ws/2/release/${releaseId}?fmt=json&inc=artist-credits+recordings+release-groups+genres+tags`,
+          `https://musicbrainz.org/ws/2/release/${releaseId}?fmt=json&inc=artist-credits+release-groups+genres+tags`,
           {headers: {'User-Agent': 'CDtheque/1.0'}}
         );
-        if (!fullRes.ok) throw new Error('release fetch failed');
+        if (!fullRes.ok) throw new Error();
         const r = await fullRes.json();
-
         const isLatin = s => /^[\u0000-\u024F\u1E00-\u1EFF\s\d\p{P}\-]*$/u.test(s);
-
-        // Titre
         const title = r.title || '';
-
-        // Artiste : construit depuis artist-credit (peut contenir plusieurs artistes)
-        // Préfère le "sort-name" latin quand le nom est en cyrillique/japonais
-        let artist = (r['artist-credit'] || [])
-          .map(ac => {
-            if (typeof ac === 'string') return ac; // joinphrase
-            const name = ac.artist?.name || '';
-            const sortName = ac.artist?.['sort-name'] || '';
-            // sort-name est souvent "Lastname, Firstname" en latin même pour les russes
-            // On préfère name si latin, sinon on essaie de reconstruire depuis sort-name
-            if (isLatin(name)) return name;
-            // Transforme "Tchaikovsky, Pyotr Ilyich" → "Pyotr Ilyich Tchaikovsky"
-            if (isLatin(sortName) && sortName.includes(',')) {
-              const parts = sortName.split(',').map(p => p.trim());
-              return parts.length === 2 ? parts[1] + ' ' + parts[0] : sortName;
-            }
-            if (isLatin(sortName)) return sortName;
-            return name; // dernier recours, même en cyrillique
-          })
-          .join('');
-
+        let artist = (r['artist-credit'] || []).map(ac => {
+          if (typeof ac === 'string') return ac;
+          const name = ac.artist?.name || '';
+          const sortName = ac.artist?.['sort-name'] || '';
+          if (isLatin(name)) return name;
+          if (isLatin(sortName) && sortName.includes(',')) {
+            const p = sortName.split(',').map(x => x.trim());
+            return p.length === 2 ? p[1] + ' ' + p[0] : sortName;
+          }
+          return isLatin(sortName) ? sortName : name;
+        }).join('');
         const year = r.date ? parseInt(r.date) : null;
-
-        // Genre : release-group d'abord, puis tags du release
         let genre = '';
         const rgId = r['release-group']?.id || '';
         if (rgId) {
           try {
-            const rgRes = await fetch(
-              `https://musicbrainz.org/ws/2/release-group/${rgId}?fmt=json&inc=genres`,
-              {headers: {'User-Agent': 'CDtheque/1.0'}}
-            );
+            const rgRes = await fetch(`https://musicbrainz.org/ws/2/release-group/${rgId}?fmt=json&inc=genres`, {headers:{'User-Agent':'CDtheque/1.0'}});
             if (rgRes.ok) {
               const rgData = await rgRes.json();
-              const genres = (rgData.genres || []).sort((a,b)=>(b.count||0)-(a.count||0));
-              for (const g of genres) {
+              for (const g of (rgData.genres||[]).sort((a,b)=>(b.count||0)-(a.count||0))) {
                 const resolved = resolveGenre(g.name);
                 if (resolved) { genre = resolved; break; }
               }
             }
           } catch(e) {}
         }
-        // Fallback : tags du release lui-même
-        if (!genre) {
-          const tags = (r.tags || []).sort((a,b)=>(b.count||0)-(a.count||0));
-          for (const t of tags) {
-            const resolved = resolveGenre(t.name);
-            if (resolved) { genre = resolved; break; }
-          }
-        }
-
-        // Pochette Cover Art Archive
         let cover = '';
         try {
-          const caRes = await fetch(
-            `https://coverartarchive.org/release/${releaseId}/front-250`,
-            {redirect: 'follow'}
-          );
+          const caRes = await fetch(`https://coverartarchive.org/release/${releaseId}/front-250`, {redirect:'follow'});
           if (caRes.ok) cover = caRes.url;
         } catch(e) {}
-
         showFoundResult({title, artist, year, genre, cover, discogs:'', code, source:'MusicBrainz'});
         return;
       }
     }
-  } catch(e) { console.warn('MusicBrainz error', e); }
+  } catch(e) { console.warn('MusicBrainz fallback error', e); }
 
   // Non trouvé
   showScanStatus('notfound', '❌ CD non trouvé dans MusicBrainz.\nComplétez les informations manuellement.');
@@ -837,10 +906,11 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  const map={'screen-list':'nav-list','screen-scan':'nav-scan','screen-add':'nav-add','screen-stats':'nav-stats'};
+  const map={'screen-list':'nav-list','screen-scan':'nav-scan','screen-add':'nav-add','screen-stats':'nav-stats','screen-settings':'nav-settings'};
   if(map[id]) document.getElementById(map[id]).classList.add('active');
   if(id==='screen-list') renderList();
   if(id==='screen-stats') renderStats();
+  if(id==='screen-settings') renderTokenStatus();
 }
 
 // ═══ STATS ════════════════════════════════════════════════
@@ -886,6 +956,37 @@ function exportCSV() {
   const blob = new Blob([['titre,artiste,annee,genre,notes,pochette,discogs_id',...rows].join('\n')],{type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cdtheque.csv'; a.click();
   showNotif('⬇ Export prêt !');
+}
+
+// ═══ TOKEN DISCOGS ═══════════════════════════════════════
+function saveDiscogsToken() {
+  const token = document.getElementById('discogs-token-input').value.trim();
+  if (!token) { showNotif('⚠️ Token vide'); return; }
+  localStorage.setItem('discogs_token', token);
+  document.getElementById('discogs-token-input').value = '';
+  renderTokenStatus();
+  showNotif('🔑 Token enregistré !');
+}
+
+function clearDiscogsToken() {
+  if (!confirm('Effacer le token Discogs ?')) return;
+  localStorage.removeItem('discogs_token');
+  renderTokenStatus();
+  showNotif('🔑 Token effacé');
+}
+
+function renderTokenStatus() {
+  const token = localStorage.getItem('discogs_token') || '';
+  const el = document.getElementById('token-status');
+  if (!el) return;
+  if (token) {
+    const masked = token.substring(0, 4) + '••••••••••••••••••••' + token.substring(token.length - 4);
+    el.style.cssText = 'background:rgba(76,255,143,0.08);border:1px solid rgba(76,255,143,0.2);color:#4cff8f;font-family:Space Mono,monospace;font-size:11px;padding:8px 12px;border-radius:8px;margin-bottom:12px;';
+    el.textContent = '✅ Token configuré : ' + masked;
+  } else {
+    el.style.cssText = 'background:rgba(255,107,53,0.08);border:1px solid rgba(255,107,53,0.2);color:var(--accent2);font-family:Space Mono,monospace;font-size:11px;padding:8px 12px;border-radius:8px;margin-bottom:12px;';
+    el.textContent = '⚠️ Aucun token — recherche Discogs désactivée';
+  }
 }
 
 function showNotif(msg){const n=document.getElementById('notif');n.textContent=msg;n.classList.add('show');setTimeout(()=>n.classList.remove('show'),2500);}
