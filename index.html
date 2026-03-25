@@ -256,8 +256,8 @@
         <button class="btn-action primary" id="start-cam-btn" onclick="startCamera()" style="flex:none;padding:10px 24px;">📷 Activer la caméra</button>
         <button class="btn-action" id="stop-cam-btn" onclick="stopCamera()" style="flex:none;padding:10px 16px;display:none;">■ Arrêter</button>
       </div>
-      <div class="scan-hint">Pointez vers le code-barres du CD.<br>Détection automatique (EAN-13 / UPC-A).<br><br>
-        <span style="color:rgba(136,136,128,0.5);font-size:10px;">Autorisez la caméra dans votre navigateur<br>si demandé.</span>
+      <div class="scan-hint">Pointez vers le code-barres du CD.<br>La détection est automatique sur <strong style="color:var(--text)">Safari iOS 17+</strong> et <strong style="color:var(--text)">Chrome Android</strong>.<br><br>
+        <span style="color:rgba(136,136,128,0.6);font-size:10px;">⚠️ Nécessite Safari sur iPhone (pas Chrome iOS).<br>Autorisez la caméra si demandé.</span>
       </div>
       <div id="scan-status" class="scan-status"></div>
       <div id="scan-result-wrap"></div>
@@ -291,8 +291,6 @@
   <button class="nav-btn" id="nav-stats" onclick="showScreen('screen-stats')"><span class="nav-icon">📊</span>Stats</button>
 </div>
 
-<!-- ZXing barcode library -->
-<script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.4/umd/index.min.js"></script>
 <script>
 // ═══ ÉTAT ════════════════════════════════════════════════
 const STORAGE_KEY = 'cdtheque-v1';
@@ -302,7 +300,7 @@ let editingId = null, currentDetailId = null, nextId = 1;
 let page = 0;
 const PAGE_SIZE = 50;
 let saveTimer = null;
-let codeReader = null, scanStream = null, scanActive = false;
+let scanStream = null, scanActive = false, scanAnimFrame = null;
 
 // ═══ STOCKAGE LOCAL ══════════════════════════════════════
 function saveLibrary() {
@@ -421,15 +419,31 @@ async function startCamera() {
     video.srcObject = scanStream;
     await video.play();
     document.getElementById('scan-line').classList.remove('paused');
-    showScanStatus('searching', '🔍 Recherche du code-barres…');
     scanActive = true;
 
-    if (typeof ZXingBrowser !== 'undefined') {
-      codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-      // Polling sur canvas
-      scanLoop(video);
+    // Priorité 1 : BarcodeDetector API native (Safari iOS 17+, Chrome Android)
+    if ('BarcodeDetector' in window) {
+      showScanStatus('searching', '🔍 Détection automatique active…');
+      const detector = new BarcodeDetector({formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code']});
+      const tick = async () => {
+        if (!scanActive) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          try {
+            const barcodes = await detector.detect(video);
+            if (barcodes.length > 0) {
+              const code = barcodes[0].rawValue;
+              stopCamera();
+              lookupBarcode(code);
+              return;
+            }
+          } catch(e) {}
+        }
+        scanAnimFrame = setTimeout(tick, 300);
+      };
+      tick();
+    // Priorité 2 : Canvas + détection manuelle simplifiée (fallback)
     } else {
-      showScanStatus('notfound', 'Bibliothèque de scan non chargée. Utilisez la saisie manuelle.');
+      showScanStatus('searching', '🔍 Caméra active — entrez le code ci-dessous ou utilisez l\'app en HTTPS sur Safari iOS 17+.');
     }
   } catch(err) {
     console.error('Camera error:', err);
@@ -437,40 +451,15 @@ async function startCamera() {
     document.getElementById('stop-cam-btn').style.display = 'none';
     let msg = 'Accès caméra refusé.';
     if (err.name === 'NotFoundError') msg = 'Aucune caméra détectée sur cet appareil.';
-    else if (err.name === 'NotAllowedError') msg = 'Permission caméra refusée. Autorisez dans les réglages du navigateur.';
+    else if (err.name === 'NotAllowedError') msg = 'Permission caméra refusée — autorisez dans les réglages Safari.';
     else if (err.name === 'NotReadableError') msg = 'Caméra déjà utilisée par une autre application.';
     showScanStatus('notfound', msg);
   }
 }
 
-function scanLoop(video) {
-  if (!scanActive || !codeReader) return;
-  const canvas = document.createElement('canvas');
-  const tick = () => {
-    if (!scanActive) return;
-    try {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      if (canvas.width > 0) {
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const luminanceSource = new ZXingBrowser.ZXingLuminanceSource(imageData.data, canvas.width, canvas.height);
-        const binaryBitmap = new ZXingBrowser.BinaryBitmap(new ZXingBrowser.HybridBinarizer(luminanceSource));
-        try {
-          const result = codeReader.decodeBitmap(binaryBitmap);
-          if (result) { stopCamera(); lookupBarcode(result.getText()); return; }
-        } catch(e) {}
-      }
-    } catch(e) {}
-    requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-}
-
 function stopCamera() {
   scanActive = false;
-  codeReader = null;
+  if (scanAnimFrame) { clearTimeout(scanAnimFrame); scanAnimFrame = null; }
   if (scanStream) { scanStream.getTracks().forEach(t=>t.stop()); scanStream = null; }
   const video = document.getElementById('scan-video');
   video.srcObject = null; video.style.display = 'none';
