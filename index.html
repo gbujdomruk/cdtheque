@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ma CDthèque">
+<title>Ma CDthèque</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+  :root{--bg:#0e0e11;--surface:#18181d;--surface2:#222228;--accent:#e8ff47;--accent2:#ff6b35;--text:#f0efe8;--muted:#888880;--border:rgba(240,239,232,0.1);--card-r:16px;}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;}
+  body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);max-width:430px;margin:0 auto;display:flex;flex-direction:column;}
+  .screen{display:none;flex-direction:column;flex:1;overflow:hidden;}.screen.active{display:flex;}
+  .header{padding:20px 20px 12px;display:flex;align-items:center;justify-content:space-between;background:var(--bg);z-index:10;border-bottom:1px solid var(--border);flex-shrink:0;}
+  .logo{font-size:22px;font-weight:800;letter-spacing:-1px;}.logo span{color:var(--accent);}
+  .header-stats{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);text-align:right;}.header-stats strong{color:var(--accent);font-size:14px;display:block;}
+  .search-wrap{padding:12px 20px;display:flex;gap:8px;background:var(--bg);flex-shrink:0;}
+  .search-input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px;color:var(--text);font-family:'Syne',sans-serif;font-size:14px;outline:none;}
+  .search-input:focus{border-color:var(--accent);}.search-input::placeholder{color:var(--muted);}
+  .btn-icon{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px;color:var(--text);cursor:pointer;font-size:16px;display:flex;align-items:center;transition:all .2s;}
+  .btn-icon.active{background:var(--accent);color:#000;border-color:var(--accent);}
+  .filter-bar{display:none;padding:0 20px 12px;gap:8px;flex-wrap:wrap;flex-shrink:0;}.filter-bar.open{display:flex;}
+  .filter-chip{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;color:var(--muted);transition:all .2s;}
+  .filter-chip.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600;}
+  .sort-bar{padding:0 20px 8px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex-shrink:0;}
+  .sort-bar::-webkit-scrollbar{display:none;}
+  .sort-btn{background:none;border:none;color:var(--muted);font-size:12px;font-family:'Space Mono',monospace;cursor:pointer;white-space:nowrap;padding:4px 8px;border-radius:6px;}
+  .sort-btn.active{color:var(--accent);background:rgba(232,255,71,0.1);}
+  .scroll-area{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  .cd-list{padding:8px 20px 90px;display:flex;flex-direction:column;gap:10px;}
+  .cd-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--card-r);padding:12px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all .2s;user-select:none;}
+  .cd-card:active{transform:scale(0.98);background:var(--surface2);}
+  .cd-cover{width:56px;height:56px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;overflow:hidden;}
+  .cd-cover img{width:100%;height:100%;object-fit:cover;border-radius:10px;}
+  .cd-info{flex:1;min-width:0;}
+  .cd-title{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cd-artist{font-size:13px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cd-meta{display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap;}
+  .cd-tag{font-family:'Space Mono',monospace;font-size:10px;padding:2px 7px;border-radius:6px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);}
+  .cd-tag.genre{color:var(--accent);border-color:rgba(232,255,71,0.3);background:rgba(232,255,71,0.08);}
+  .cd-tag.year{color:var(--accent2);border-color:rgba(255,107,53,0.3);background:rgba(255,107,53,0.08);}
+  .cd-fav{color:var(--muted);font-size:18px;flex-shrink:0;}.cd-fav.on{color:#ffcc00;}
+  .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:var(--muted);text-align:center;gap:12px;}
+  .empty-state .big{font-size:48px;}.empty-state p{font-size:14px;line-height:1.6;}
+  .fab{position:fixed;bottom:76px;right:20px;width:56px;height:56px;background:var(--accent);color:#000;border:none;border-radius:50%;font-size:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(232,255,71,0.4);transition:transform .2s;z-index:20;}
+  .fab:active{transform:scale(0.93);}
+  .bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;background:var(--bg);border-top:1px solid var(--border);display:flex;padding:6px 0 max(10px,env(safe-area-inset-bottom));z-index:20;}
+  .nav-btn{flex:1;background:none;border:none;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:'Space Mono',monospace;font-size:10px;padding:4px 0;transition:color .2s;}
+  .nav-btn.active{color:var(--accent);}.nav-icon{font-size:20px;}
+  /* DÉTAIL */
+  .detail-header{padding:16px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);flex-shrink:0;}
+  .back-btn{background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:18px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+  .detail-cover-img{width:200px;height:200px;border-radius:20px;object-fit:cover;display:block;margin:24px auto 0;}
+  .detail-cover-placeholder{width:200px;height:200px;border-radius:20px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:70px;margin:24px auto 0;}
+  .detail-body{padding:20px;}
+  .detail-title{font-size:24px;font-weight:800;letter-spacing:-0.5px;}
+  .detail-artist{font-size:16px;color:var(--muted);margin-top:4px;}
+  .detail-tags{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+  .detail-tag{font-family:'Space Mono',monospace;font-size:11px;padding:4px 12px;border-radius:8px;border:1px solid var(--border);color:var(--muted);}
+  .detail-tag.accent{color:var(--accent);border-color:rgba(232,255,71,0.4);background:rgba(232,255,71,0.08);}
+  .tracks-title{font-size:12px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:1px;margin:20px 0 10px;}
+  .track-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px;}
+  .track-num{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);width:24px;text-align:right;flex-shrink:0;}
+  .track-name{flex:1;}.track-dur{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);}
+  .detail-actions{display:flex;gap:10px;margin-top:20px;}
+  .btn-action{flex:1;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Syne',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;}
+  .btn-action:active{transform:scale(0.97);}
+  .btn-action.primary{background:var(--accent);color:#000;border-color:var(--accent);}
+  .btn-action.danger{color:#ff4444;border-color:rgba(255,68,68,0.3);}
+  /* FORMULAIRE */
+  .form-header{padding:16px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);flex-shrink:0;}
+  .form-title{font-size:18px;font-weight:700;}
+  .form-body{padding:20px;display:flex;flex-direction:column;gap:14px;}
+  .form-group{display:flex;flex-direction:column;gap:6px;}
+  .form-label{font-size:12px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:0.5px;}
+  .form-input{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-family:'Syne',sans-serif;font-size:15px;outline:none;transition:border-color .2s;width:100%;}
+  .form-input:focus{border-color:var(--accent);}.form-input::placeholder{color:var(--muted);}
+  .form-row{display:flex;gap:10px;}.form-row .form-group{flex:1;}
+  .import-zone{background:var(--surface2);border:2px dashed rgba(240,239,232,0.15);border-radius:14px;padding:24px 20px;text-align:center;cursor:pointer;transition:all .2s;}
+  .import-zone:hover,.import-zone.dragover{border-color:var(--accent);}
+  /* SCANNER */
+  .scan-body{padding:20px;display:flex;flex-direction:column;gap:16px;}
+  .scan-viewfinder{position:relative;width:100%;max-width:320px;margin:0 auto;aspect-ratio:1;border-radius:20px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;}
+  #scan-video{width:100%;height:100%;object-fit:cover;}
+  .scan-overlay{position:absolute;inset:0;pointer-events:none;}
+  .scan-corner{position:absolute;width:28px;height:28px;border-color:var(--accent);border-style:solid;}
+  .scan-corner.tl{top:10px;left:10px;border-width:3px 0 0 3px;border-radius:4px 0 0 0;}
+  .scan-corner.tr{top:10px;right:10px;border-width:3px 3px 0 0;border-radius:0 4px 0 0;}
+  .scan-corner.bl{bottom:10px;left:10px;border-width:0 0 3px 3px;border-radius:0 0 0 4px;}
+  .scan-corner.br{bottom:10px;right:10px;border-width:0 3px 3px 0;border-radius:0 0 4px 0;}
+  .scan-line{position:absolute;left:10%;right:10%;height:2px;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:scanMove 2s ease-in-out infinite;}
+  .scan-line.paused{animation:none;display:none;}
+  @keyframes scanMove{0%,100%{top:15%;}50%{top:80%;}}
+  .scan-hint{font-family:'Space Mono',monospace;font-size:12px;color:var(--muted);text-align:center;line-height:1.7;}
+  .scan-status{font-family:'Space Mono',monospace;font-size:12px;padding:10px 14px;border-radius:10px;background:var(--surface2);text-align:center;display:none;}
+  .scan-status.searching{display:block;color:var(--accent);}
+  .scan-status.found{display:block;color:#4cff8f;background:rgba(76,255,143,0.08);border:1px solid rgba(76,255,143,0.2);}
+  .scan-status.notfound{display:block;color:var(--accent2);}
+  .scan-result-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;display:flex;gap:12px;align-items:center;}
+  .scan-result-img{width:64px;height:64px;border-radius:10px;object-fit:cover;background:var(--surface2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:28px;}
+  .scan-result-info{flex:1;min-width:0;}
+  .scan-result-title{font-weight:700;font-size:15px;margin-bottom:3px;}
+  .scan-result-artist{font-size:13px;color:var(--muted);}
+  .manual-row{display:flex;gap:8px;}
+  .manual-row .form-input{flex:1;}
+  /* STATS */
+  .stats-body{padding:20px;display:flex;flex-direction:column;gap:16px;}
+  .stats-hero{background:var(--surface);border-radius:var(--card-r);padding:20px;text-align:center;border:1px solid var(--border);}
+  .stats-number{font-size:64px;font-weight:800;color:var(--accent);letter-spacing:-3px;line-height:1;}
+  .stats-label{color:var(--muted);font-size:13px;margin-top:4px;}
+  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;}
+  .stat-val{font-size:26px;font-weight:800;}.stat-key{font-size:11px;font-family:'Space Mono',monospace;color:var(--muted);margin-top:2px;}
+  .genre-bars{display:flex;flex-direction:column;gap:8px;}
+  .genre-row{display:flex;align-items:center;gap:10px;}
+  .genre-name{width:90px;color:var(--muted);font-size:12px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .genre-bar-wrap{flex:1;background:var(--surface2);border-radius:4px;height:8px;overflow:hidden;}
+  .genre-bar-fill{height:100%;background:var(--accent);border-radius:4px;}
+  .genre-count{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);width:28px;text-align:right;}
+  /* PROGRESS */
+  .progress-bar{height:4px;background:rgba(232,255,71,0.2);border-radius:2px;overflow:hidden;margin:8px 0;}
+  .progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;}
+  .load-status{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);text-align:center;}
+  /* PAGER */
+  .pager{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px 20px;font-family:'Space Mono',monospace;font-size:12px;color:var(--muted);flex-shrink:0;}
+  .pager-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:6px 12px;cursor:pointer;font-size:12px;}
+  .pager-btn:disabled{opacity:0.3;cursor:default;}
+  /* NOTIF */
+  .notification{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-80px);background:var(--accent);color:#000;padding:10px 20px;border-radius:30px;font-weight:700;font-size:14px;z-index:200;transition:transform .3s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;max-width:90vw;text-align:center;}
+  .notification.show{transform:translateX(-50%) translateY(0);}
+  .discogs-link{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--border);border-radius:8px;padding:4px 10px;margin-top:8px;}
+  #csvFileInput{display:none;}
+  textarea.form-input{resize:none;}
+</style>
+</head>
+<body>
+
+<div class="notification" id="notif"></div>
+
+<!-- ═══ LISTE ═══ -->
+<div class="screen active" id="screen-list">
+  <div class="header">
+    <div class="logo">Ma <span>CD</span>thèque</div>
+    <div class="header-stats"><strong id="total-count">…</strong>albums</div>
+  </div>
+  <div class="search-wrap">
+    <input class="search-input" id="search-input" placeholder="Rechercher artiste, titre…" oninput="onSearch()">
+    <button class="btn-icon" id="filter-toggle" onclick="toggleFilter()">⚙</button>
+  </div>
+  <div class="filter-bar" id="filter-bar">
+    <div class="filter-chip active" onclick="setGenre('')" data-genre="">Tous</div>
+    <div class="filter-chip" onclick="setFavsOnly()" id="favs-chip">⭐ Favoris</div>
+  </div>
+  <div class="sort-bar">
+    <button class="sort-btn active" onclick="setSort('title')" id="sort-title">Titre</button>
+    <button class="sort-btn" onclick="setSort('artist')" id="sort-artist">Artiste</button>
+    <button class="sort-btn" onclick="setSort('year')" id="sort-year">Année</button>
+    <button class="sort-btn" onclick="setSort('genre')" id="sort-genre">Genre</button>
+    <button class="sort-btn" onclick="setSort('added')" id="sort-added">Récents</button>
+  </div>
+  <div class="scroll-area">
+    <div class="cd-list" id="cd-list">
+      <div class="empty-state"><div class="big">⏳</div><p>Chargement…</p></div>
+    </div>
+    <div class="pager" id="pager" style="display:none;">
+      <button class="pager-btn" id="prev-btn" onclick="changePage(-1)">← Préc.</button>
+      <span id="page-info"></span>
+      <button class="pager-btn" id="next-btn" onclick="changePage(1)">Suiv. →</button>
+    </div>
+  </div>
+  <button class="fab" onclick="showScreen('screen-add')">+</button>
+</div>
+
+<!-- ═══ DÉTAIL ═══ -->
+<div class="screen" id="screen-detail">
+  <div class="detail-header">
+    <button class="back-btn" onclick="showScreen('screen-list')">←</button>
+    <div style="flex:1;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="detail-header-title"></div>
+    <button class="back-btn" id="detail-fav-btn" onclick="toggleDetailFav()" style="font-size:20px;">☆</button>
+  </div>
+  <div class="scroll-area" id="detail-scroll">
+    <div id="detail-cover-wrap"></div>
+    <div class="detail-body">
+      <div class="detail-title" id="detail-title"></div>
+      <div class="detail-artist" id="detail-artist"></div>
+      <div id="detail-discogs-link"></div>
+      <div class="detail-tags" id="detail-tags"></div>
+      <div id="detail-tracks"></div>
+      <div class="detail-actions" style="padding-bottom:90px;">
+        <button class="btn-action" onclick="editCD()">✏️ Modifier</button>
+        <button class="btn-action danger" onclick="deleteCurrentCD()">🗑 Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FORMULAIRE ═══ -->
+<div class="screen" id="screen-add">
+  <div class="form-header">
+    <button class="back-btn" onclick="cancelForm()">←</button>
+    <div class="form-title" id="form-title-label">Nouveau CD</div>
+  </div>
+  <div class="scroll-area">
+    <div class="form-body">
+      <div class="import-zone" id="import-zone" onclick="document.getElementById('csvFileInput').click()">
+        <div style="font-size:28px;margin-bottom:6px;">📂</div>
+        <div style="font-weight:700;font-size:15px;color:var(--text);">Importer MusicBuddy CSV</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">Glissez ou appuyez pour choisir</div>
+      </div>
+      <div id="import-progress" style="display:none;">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+        <div class="load-status" id="load-status">Chargement…</div>
+      </div>
+      <input type="file" id="csvFileInput" accept=".csv" onchange="importCSV(event)">
+      <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;">
+        <div style="flex:1;height:1px;background:var(--border);"></div><span>ou saisir manuellement</span><div style="flex:1;height:1px;background:var(--border);"></div>
+      </div>
+      <div class="form-group"><div class="form-label">TITRE *</div><input class="form-input" id="f-title" placeholder="Ex: Nevermind"></div>
+      <div class="form-group"><div class="form-label">ARTISTE *</div><input class="form-input" id="f-artist" placeholder="Ex: Nirvana"></div>
+      <div class="form-row">
+        <div class="form-group"><div class="form-label">ANNÉE</div><input class="form-input" id="f-year" placeholder="1991" type="number" inputmode="numeric"></div>
+        <div class="form-group"><div class="form-label">GENRE</div><input class="form-input" id="f-genre" placeholder="Rock" list="genre-list">
+          <datalist id="genre-list"><option value="Rock"><option value="Pop"><option value="Jazz"><option value="Classique"><option value="Électro"><option value="R&B"><option value="Métal"><option value="Hip-Hop"><option value="Folk"><option value="Blues"><option value="Reggae"><option value="Soul"></datalist>
+        </div>
+      </div>
+      <div class="form-group"><div class="form-label">NOTES</div><input class="form-input" id="f-notes" placeholder="État, édition…"></div>
+      <div class="form-group"><div class="form-label">POCHETTE (URL)</div><input class="form-input" id="f-cover" placeholder="https://…" type="url"></div>
+      <div class="form-group"><div class="form-label">PISTES (une par ligne)</div><textarea class="form-input" id="f-tracks" rows="4" placeholder="1. Titre&#10;2. Titre…"></textarea></div>
+      <input type="hidden" id="f-id">
+      <button class="btn-action primary" onclick="saveCD()" style="width:100%;padding:14px;font-size:16px;border-radius:14px;margin-bottom:80px;">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SCANNER ═══ -->
+<div class="screen" id="screen-scan">
+  <div class="header">
+    <div class="logo">Scanner</div>
+    <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;">code-barres EAN/UPC</div>
+  </div>
+  <div class="scroll-area">
+    <div class="scan-body">
+      <div class="scan-viewfinder" id="scan-viewfinder">
+        <div id="scan-placeholder" style="font-size:48px;color:var(--muted);">📷</div>
+        <video id="scan-video" autoplay muted playsinline style="display:none;width:100%;height:100%;object-fit:cover;"></video>
+        <div class="scan-overlay">
+          <div class="scan-corner tl"></div><div class="scan-corner tr"></div>
+          <div class="scan-corner bl"></div><div class="scan-corner br"></div>
+          <div class="scan-line paused" id="scan-line"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button class="btn-action primary" id="start-cam-btn" onclick="startCamera()" style="flex:none;padding:10px 24px;">📷 Activer la caméra</button>
+        <button class="btn-action" id="stop-cam-btn" onclick="stopCamera()" style="flex:none;padding:10px 16px;display:none;">■ Arrêter</button>
+      </div>
+      <div class="scan-hint">Pointez vers le code-barres du CD.<br>Détection automatique (EAN-13 / UPC-A).<br><br>
+        <span style="color:rgba(136,136,128,0.5);font-size:10px;">Autorisez la caméra dans votre navigateur<br>si demandé.</span>
+      </div>
+      <div id="scan-status" class="scan-status"></div>
+      <div id="scan-result-wrap"></div>
+      <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;">
+        <div style="flex:1;height:1px;background:var(--border);"></div><span>ou entrer manuellement</span><div style="flex:1;height:1px;background:var(--border);"></div>
+      </div>
+      <div class="manual-row">
+        <input class="form-input" id="manual-barcode" placeholder="0602547928481 (EAN/UPC)" type="tel" inputmode="numeric">
+        <button class="btn-action primary" onclick="lookupBarcode(document.getElementById('manual-barcode').value)" style="flex:none;padding:12px 16px;">→</button>
+      </div>
+      <div style="height:80px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ STATS ═══ -->
+<div class="screen" id="screen-stats">
+  <div class="header"><div class="logo">Statistiques</div><div style="font-size:12px;color:var(--muted);font-family:'Space Mono',monospace;">collection</div></div>
+  <div class="scroll-area">
+    <div class="stats-body" id="stats-content">
+      <div class="empty-state"><div class="big">📊</div><p>Importez votre CSV<br>pour voir les statistiques.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<div class="bottom-nav">
+  <button class="nav-btn active" id="nav-list" onclick="showScreen('screen-list')"><span class="nav-icon">💿</span>Ma liste</button>
+  <button class="nav-btn" id="nav-scan" onclick="showScreen('screen-scan')"><span class="nav-icon">📷</span>Scanner</button>
+  <button class="nav-btn" id="nav-add" onclick="showScreen('screen-add')"><span class="nav-icon">➕</span>Ajouter</button>
+  <button class="nav-btn" id="nav-stats" onclick="showScreen('screen-stats')"><span class="nav-icon">📊</span>Stats</button>
+</div>
+
+<!-- ZXing barcode library -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.4/umd/index.min.js"></script>
+<script>
+// ═══ ÉTAT ════════════════════════════════════════════════
+const STORAGE_KEY = 'cdtheque-v1';
+let cds = [], filtered = [], allGenres = [];
+let currentSort = 'title', currentGenre = '', favsOnly = false;
+let editingId = null, currentDetailId = null, nextId = 1;
+let page = 0;
+const PAGE_SIZE = 50;
+let saveTimer = null;
+let codeReader = null, scanStream = null, scanActive = false;
+
+// ═══ STOCKAGE LOCAL ══════════════════════════════════════
+function saveLibrary() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const genres = [...new Set(cds.map(c=>c.genre).filter(Boolean))].sort();
+      allGenres = genres;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({cds, nextId, genres}));
+    } catch(e) { showNotif('⚠️ Espace de stockage plein'); }
+  }, 1500);
+}
+
+function loadLibrary() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      cds = d.cds || [];
+      nextId = d.nextId || cds.length + 1;
+      allGenres = d.genres || [];
+      renderGenreChips();
+      showNotif(`📚 ${cds.length} albums chargés`);
+    }
+  } catch(e) {}
+  renderList();
+}
+
+// ═══ HELPERS ═════════════════════════════════════════════
+function fmtDur(s){if(!s)return'';return Math.floor(s/60)+':'+(s%60<10?'0':'')+s%60;}
+function getEmoji(g){g=(g||'').toLowerCase();if(g.includes('rock'))return'🎸';if(g.includes('jazz'))return'🎷';if(g.includes('pop'))return'🎤';if(g.includes('class'))return'🎻';if(g.includes('electro')||g.includes('electronic'))return'🎧';if(g.includes('metal')||g.includes('métal'))return'🤘';if(g.includes('hip')||g.includes('rap'))return'🎵';if(g.includes('folk'))return'🪕';if(g.includes('blues'))return'🎺';if(g.includes('reggae'))return'🌿';if(g.includes('soul')||g.includes('r&b'))return'🎵';return'💿';}
+function parseTracks(raw){if(!raw)return[];try{return JSON.parse(raw).map(t=>({name:t.title.replace(/^\d+[-.\s]+/).replace(/^\d+-\d+\.\s+/,''),dur:t.duration||0}));}catch(e){return[];}}
+function parseGenre(raw){if(!raw)return'';try{const a=JSON.parse(raw);return Array.isArray(a)?a[0]||'':raw;}catch(e){return raw.split(',')[0].trim();}}
+function parseCSVLine(line){const r=[];let cur='',inQ=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}else if(c===','&&!inQ){r.push(cur);cur='';}else cur+=c;}r.push(cur);return r;}
+
+// ═══ IMPORT CSV ══════════════════════════════════════════
+function importCSV(event) {
+  const file = event.target.files[0]; if(!file) return;
+  document.getElementById('import-progress').style.display = 'block';
+  document.getElementById('progress-fill').style.width = '5%';
+  document.getElementById('load-status').textContent = 'Lecture du fichier…';
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('progress-fill').style.width = '35%';
+    setTimeout(() => {
+      try {
+        const lines = e.target.result.split('\n').filter(l=>l.trim());
+        const header = parseCSVLine(lines[0]).map(h=>h.trim().toLowerCase());
+        const idx = {
+          title: header.indexOf('title'), artist: header.indexOf('artist'),
+          year: header.indexOf('release year'), genre: header.indexOf('genres'),
+          tracks: header.indexOf('tracks'), cover: header.indexOf('uploaded image url'),
+          discogs: header.indexOf('discogs release id'), notes: header.indexOf('notes'),
+          rating: header.indexOf('rating'), favorites: header.indexOf('favorites')
+        };
+        document.getElementById('progress-fill').style.width = '60%';
+        document.getElementById('load-status').textContent = `Analyse de ${lines.length-1} albums…`;
+        const imported = []; const genreSet = new Set();
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const p = parseCSVLine(lines[i]);
+          const genre = idx.genre >= 0 ? parseGenre(p[idx.genre]||'') : '';
+          if (genre) genreSet.add(genre);
+          imported.push({
+            id: nextId++,
+            title: (idx.title>=0 ? p[idx.title]||'' : '').trim(),
+            artist: (idx.artist>=0 ? p[idx.artist]||'' : '').trim(),
+            year: idx.year>=0 ? parseInt(p[idx.year])||null : null,
+            genre, tracks: idx.tracks>=0 ? parseTracks(p[idx.tracks]||'') : [],
+            cover: (idx.cover>=0 ? (p[idx.cover]||'').trim() : ''),
+            notes: (idx.notes>=0 ? (p[idx.notes]||'').trim() : ''),
+            discogs: (idx.discogs>=0 ? (p[idx.discogs]||'').trim() : ''),
+            fav: idx.favorites>=0 ? p[idx.favorites]==='1' : false,
+            rating: idx.rating>=0 ? parseFloat(p[idx.rating])||0 : 0,
+            added: i
+          });
+        }
+        cds = imported; allGenres = [...genreSet].sort();
+        renderGenreChips();
+        document.getElementById('progress-fill').style.width = '90%';
+        document.getElementById('load-status').textContent = 'Sauvegarde locale…';
+        saveLibrary();
+        setTimeout(() => {
+          document.getElementById('progress-fill').style.width = '100%';
+          document.getElementById('load-status').textContent = `${imported.length} albums importés !`;
+          event.target.value = '';
+          setTimeout(() => {
+            document.getElementById('import-progress').style.display = 'none';
+            showNotif(`✅ ${imported.length} albums importés !`);
+            showScreen('screen-list');
+          }, 600);
+        }, 800);
+      } catch(err) {
+        document.getElementById('load-status').textContent = 'Erreur lors de l\'import.';
+        console.error(err);
+      }
+    }, 50);
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+// ═══ SCANNER CAMÉRA ══════════════════════════════════════
+async function startCamera() {
+  document.getElementById('start-cam-btn').style.display = 'none';
+  document.getElementById('stop-cam-btn').style.display = 'flex';
+  showScanStatus('searching', '📷 Activation de la caméra…');
+  try {
+    const constraints = {
+      video: { facingMode: {ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    };
+    scanStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const video = document.getElementById('scan-video');
+    document.getElementById('scan-placeholder').style.display = 'none';
+    video.style.display = 'block';
+    video.srcObject = scanStream;
+    await video.play();
+    document.getElementById('scan-line').classList.remove('paused');
+    showScanStatus('searching', '🔍 Recherche du code-barres…');
+    scanActive = true;
+
+    if (typeof ZXingBrowser !== 'undefined') {
+      codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+      // Polling sur canvas
+      scanLoop(video);
+    } else {
+      showScanStatus('notfound', 'Bibliothèque de scan non chargée. Utilisez la saisie manuelle.');
+    }
+  } catch(err) {
+    console.error('Camera error:', err);
+    document.getElementById('start-cam-btn').style.display = 'flex';
+    document.getElementById('stop-cam-btn').style.display = 'none';
+    let msg = 'Accès caméra refusé.';
+    if (err.name === 'NotFoundError') msg = 'Aucune caméra détectée sur cet appareil.';
+    else if (err.name === 'NotAllowedError') msg = 'Permission caméra refusée. Autorisez dans les réglages du navigateur.';
+    else if (err.name === 'NotReadableError') msg = 'Caméra déjà utilisée par une autre application.';
+    showScanStatus('notfound', msg);
+  }
+}
+
+function scanLoop(video) {
+  if (!scanActive || !codeReader) return;
+  const canvas = document.createElement('canvas');
+  const tick = () => {
+    if (!scanActive) return;
+    try {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      if (canvas.width > 0) {
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const luminanceSource = new ZXingBrowser.ZXingLuminanceSource(imageData.data, canvas.width, canvas.height);
+        const binaryBitmap = new ZXingBrowser.BinaryBitmap(new ZXingBrowser.HybridBinarizer(luminanceSource));
+        try {
+          const result = codeReader.decodeBitmap(binaryBitmap);
+          if (result) { stopCamera(); lookupBarcode(result.getText()); return; }
+        } catch(e) {}
+      }
+    } catch(e) {}
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function stopCamera() {
+  scanActive = false;
+  codeReader = null;
+  if (scanStream) { scanStream.getTracks().forEach(t=>t.stop()); scanStream = null; }
+  const video = document.getElementById('scan-video');
+  video.srcObject = null; video.style.display = 'none';
+  document.getElementById('scan-placeholder').style.display = 'flex';
+  document.getElementById('scan-line').classList.add('paused');
+  document.getElementById('start-cam-btn').style.display = 'flex';
+  document.getElementById('stop-cam-btn').style.display = 'none';
+}
+
+function showScanStatus(type, msg) {
+  const el = document.getElementById('scan-status');
+  el.className = 'scan-status ' + type;
+  el.textContent = msg;
+}
+
+// ═══ RECHERCHE CODE-BARRES ════════════════════════════════
+async function lookupBarcode(code) {
+  if (!code || !code.trim()) { showNotif('Entrez un code-barres'); return; }
+  code = code.trim();
+  document.getElementById('manual-barcode').value = code;
+  showScanStatus('searching', '🔍 Recherche pour ' + code + ' …');
+  document.getElementById('scan-result-wrap').innerHTML = '';
+
+  // MusicBrainz
+  try {
+    const res = await fetch(`https://musicbrainz.org/ws/2/release/?query=barcode:${code}&fmt=json&limit=1`, {
+      headers: {'User-Agent': 'CDtheque/1.0 (local app)'}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.releases && data.releases.length) {
+        const r = data.releases[0];
+        const title = r.title || '';
+        const artist = r['artist-credit']?.[0]?.artist?.name || '';
+        const year = r.date ? parseInt(r.date) : null;
+        const mbid = r.id;
+        // Tentative pochette Cover Art Archive
+        let cover = '';
+        try {
+          const caRes = await fetch(`https://coverartarchive.org/release/${mbid}/front-250`, {redirect:'follow'});
+          if (caRes.ok) cover = caRes.url;
+        } catch(e) {}
+        showFoundResult({title, artist, year, genre:'', cover, discogs:'', code, source:'MusicBrainz'});
+        return;
+      }
+    }
+  } catch(e) { console.warn('MusicBrainz error', e); }
+
+  // Non trouvé
+  showScanStatus('notfound', '❌ CD non trouvé dans MusicBrainz.\nComplétez les informations manuellement.');
+  setTimeout(() => {
+    prefillForm({title:'', artist:'', year:null, genre:'', cover:'', notes:`Code-barres: ${code}`});
+  }, 1800);
+}
+
+function showFoundResult(cd) {
+  showScanStatus('found', '✅ CD identifié !');
+  const cdJson = JSON.stringify(cd).replace(/"/g,'&quot;');
+  document.getElementById('scan-result-wrap').innerHTML = `
+    <div class="scan-result-card">
+      ${cd.cover
+        ? `<img class="scan-result-img" src="${cd.cover}" alt="" onerror="this.outerHTML='<div class=scan-result-img>💿</div>'" style="font-size:28px;">`
+        : `<div class="scan-result-img">💿</div>`}
+      <div class="scan-result-info">
+        <div class="scan-result-title">${cd.title || 'Titre inconnu'}</div>
+        <div class="scan-result-artist">${cd.artist || 'Artiste inconnu'}${cd.year ? ' · '+cd.year : ''}</div>
+        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:4px;">via ${cd.source}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:10px;">
+      <button class="btn-action primary" onclick='confirmAddCD(${cdJson})'>➕ Ajouter</button>
+      <button class="btn-action" onclick='prefillForm(${cdJson})'>✏️ Modifier</button>
+    </div>`;
+}
+
+function confirmAddCD(cd) {
+  const exists = cds.some(c => c.title.toLowerCase()===cd.title.toLowerCase() && c.artist.toLowerCase()===cd.artist.toLowerCase());
+  if (exists && !confirm(`"${cd.title}" est peut-être déjà dans votre collection. Ajouter quand même ?`)) return;
+  cds.unshift({id:nextId++, title:cd.title, artist:cd.artist, year:cd.year||null, genre:cd.genre||'', cover:cd.cover||'', notes:cd.notes||'', discogs:cd.discogs||'', tracks:[], fav:false, rating:0, added:nextId});
+  saveLibrary();
+  showNotif('✅ CD ajouté !');
+  document.getElementById('scan-result-wrap').innerHTML = '';
+  document.getElementById('scan-status').className = 'scan-status';
+  document.getElementById('manual-barcode').value = '';
+  showScreen('screen-list');
+}
+
+function prefillForm(cd) {
+  stopCamera();
+  editingId = null;
+  document.getElementById('form-title-label').textContent = 'Nouveau CD';
+  document.getElementById('f-title').value = cd.title || '';
+  document.getElementById('f-artist').value = cd.artist || '';
+  document.getElementById('f-year').value = cd.year || '';
+  document.getElementById('f-genre').value = cd.genre || '';
+  document.getElementById('f-notes').value = cd.notes || '';
+  document.getElementById('f-cover').value = cd.cover || '';
+  document.getElementById('f-tracks').value = '';
+  showScreen('screen-add');
+}
+
+// ═══ LISTE ════════════════════════════════════════════════
+function renderGenreChips() {
+  const bar = document.getElementById('filter-bar');
+  bar.innerHTML = `<div class="filter-chip active" onclick="setGenre('')" data-genre="">Tous</div>
+    <div class="filter-chip" onclick="setFavsOnly()" id="favs-chip">⭐ Favoris</div>`;
+  allGenres.slice(0, 14).forEach(g => {
+    const c = document.createElement('div');
+    c.className = 'filter-chip'; c.dataset.genre = g; c.textContent = g;
+    c.onclick = () => setGenre(g); bar.appendChild(c);
+  });
+}
+
+function applyFilter() {
+  const q = document.getElementById('search-input').value.toLowerCase().trim();
+  filtered = cds.filter(cd => {
+    const m = !q || cd.title.toLowerCase().includes(q) || cd.artist.toLowerCase().includes(q) || (cd.genre||'').toLowerCase().includes(q);
+    return m && (!currentGenre || cd.genre===currentGenre) && (!favsOnly || cd.fav);
+  });
+  filtered.sort((a,b) => {
+    if(currentSort==='title') return a.title.localeCompare(b.title,'fr');
+    if(currentSort==='artist') return a.artist.localeCompare(b.artist,'fr');
+    if(currentSort==='year') return (b.year||0)-(a.year||0);
+    if(currentSort==='genre') return (a.genre||'').localeCompare(b.genre||'','fr');
+    if(currentSort==='added') return b.added-a.added;
+    return 0;
+  });
+  page = 0;
+}
+
+function renderList() {
+  applyFilter();
+  document.getElementById('total-count').textContent = cds.length;
+  const list = document.getElementById('cd-list');
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-state"><div class="big">${cds.length?'🔍':'📂'}</div><p>${cds.length?'Aucun résultat.':'Importez votre CSV<br>ou scannez un code-barres.'}</p></div>`;
+    document.getElementById('pager').style.display = 'none'; return;
+  }
+  const totalPages = Math.ceil(filtered.length/PAGE_SIZE);
+  list.innerHTML = filtered.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map(cd => `
+    <div class="cd-card" onclick="showDetail(${cd.id})">
+      <div class="cd-cover">${cd.cover
+        ? `<img src="${cd.cover}" alt="" onerror="this.parentElement.innerHTML='<div style=font-size:24px>${getEmoji(cd.genre)}</div>'">`
+        : `<div style="font-size:24px">${getEmoji(cd.genre)}</div>`}</div>
+      <div class="cd-info">
+        <div class="cd-title">${cd.title||'Sans titre'}</div>
+        <div class="cd-artist">${cd.artist||'Artiste inconnu'}</div>
+        <div class="cd-meta">
+          ${cd.genre?`<span class="cd-tag genre">${cd.genre}</span>`:''}
+          ${cd.year?`<span class="cd-tag year">${cd.year}</span>`:''}
+          ${cd.tracks?.length?`<span class="cd-tag">${cd.tracks.length} pistes</span>`:''}
+        </div>
+      </div>
+      <div class="cd-fav ${cd.fav?'on':''}">${cd.fav?'⭐':'☆'}</div>
+    </div>`).join('');
+  const pager = document.getElementById('pager');
+  if (totalPages > 1) {
+    pager.style.display = 'flex';
+    document.getElementById('page-info').textContent = `${page+1} / ${totalPages} (${filtered.length})`;
+    document.getElementById('prev-btn').disabled = page===0;
+    document.getElementById('next-btn').disabled = page>=totalPages-1;
+  } else pager.style.display = 'none';
+}
+
+function changePage(d) { page = Math.max(0,page+d); renderList(); document.querySelector('#screen-list .scroll-area').scrollTop=0; }
+
+function showDetail(id) {
+  const cd = cds.find(c=>c.id===id); if(!cd) return;
+  currentDetailId = id;
+  document.getElementById('detail-header-title').textContent = cd.artist;
+  document.getElementById('detail-title').textContent = cd.title;
+  document.getElementById('detail-artist').textContent = cd.artist;
+  document.getElementById('detail-fav-btn').textContent = cd.fav?'⭐':'☆';
+  const cw = document.getElementById('detail-cover-wrap');
+  cw.innerHTML = cd.cover
+    ? `<img class="detail-cover-img" src="${cd.cover}" alt="" onerror="this.outerHTML='<div class=detail-cover-placeholder>${getEmoji(cd.genre)}</div>'">`
+    : `<div class="detail-cover-placeholder">${getEmoji(cd.genre)}</div>`;
+  let tags = '';
+  if(cd.genre) tags += `<span class="detail-tag accent">${cd.genre}</span>`;
+  if(cd.year) tags += `<span class="detail-tag">${cd.year}</span>`;
+  if(cd.notes) tags += `<span class="detail-tag">${cd.notes}</span>`;
+  if(cd.rating>0) tags += `<span class="detail-tag">★ ${cd.rating.toFixed(1)}</span>`;
+  document.getElementById('detail-tags').innerHTML = tags;
+  document.getElementById('detail-discogs-link').innerHTML = cd.discogs
+    ? `<a class="discogs-link" href="https://www.discogs.com/release/${cd.discogs}" target="_blank">🔗 Voir sur Discogs</a>` : '';
+  let tracksHtml = '';
+  if(cd.tracks?.length) tracksHtml = `<div class="tracks-title">PISTES</div>` +
+    cd.tracks.map((t,i) => `<div class="track-item"><span class="track-num">${i+1}</span><span class="track-name">${t.name}</span>${t.dur?`<span class="track-dur">${fmtDur(t.dur)}</span>`:''}</div>`).join('');
+  document.getElementById('detail-tracks').innerHTML = tracksHtml;
+  document.getElementById('detail-scroll').scrollTop = 0;
+  showScreen('screen-detail');
+}
+
+function toggleDetailFav() {
+  const cd = cds.find(c=>c.id===currentDetailId);
+  if(cd) { cd.fav=!cd.fav; document.getElementById('detail-fav-btn').textContent=cd.fav?'⭐':'☆'; saveLibrary(); }
+}
+
+function editCD() {
+  const cd = cds.find(c=>c.id===currentDetailId); if(!cd) return;
+  editingId = cd.id;
+  document.getElementById('form-title-label').textContent = 'Modifier';
+  document.getElementById('f-title').value = cd.title;
+  document.getElementById('f-artist').value = cd.artist;
+  document.getElementById('f-year').value = cd.year||'';
+  document.getElementById('f-genre').value = cd.genre||'';
+  document.getElementById('f-notes').value = cd.notes||'';
+  document.getElementById('f-cover').value = cd.cover||'';
+  document.getElementById('f-tracks').value = (cd.tracks||[]).map((t,i)=>`${i+1}. ${t.name}`).join('\n');
+  showScreen('screen-add');
+}
+
+function cancelForm() { editingId=null; clearForm(); showScreen('screen-list'); }
+function clearForm() { ['f-title','f-artist','f-year','f-genre','f-notes','f-cover','f-tracks'].forEach(i=>{const e=document.getElementById(i);if(e)e.value='';}); }
+
+function saveCD() {
+  const title = document.getElementById('f-title').value.trim();
+  if(!title) { alert('Le titre est obligatoire.'); return; }
+  const tracks = document.getElementById('f-tracks').value.trim()
+    .split('\n').map(t=>({name:t.replace(/^\d+[\.\)]\s*/,'').trim(),dur:0})).filter(t=>t.name);
+  if(editingId) {
+    const cd = cds.find(c=>c.id===editingId);
+    if(cd) { cd.title=title; cd.artist=document.getElementById('f-artist').value.trim(); cd.year=parseInt(document.getElementById('f-year').value)||null; cd.genre=document.getElementById('f-genre').value.trim(); cd.notes=document.getElementById('f-notes').value.trim(); cd.cover=document.getElementById('f-cover').value.trim(); cd.tracks=tracks; }
+    editingId = null;
+  } else {
+    cds.unshift({id:nextId++,title,artist:document.getElementById('f-artist').value.trim(),year:parseInt(document.getElementById('f-year').value)||null,genre:document.getElementById('f-genre').value.trim(),notes:document.getElementById('f-notes').value.trim(),cover:document.getElementById('f-cover').value.trim(),tracks,fav:false,rating:0,discogs:'',added:nextId});
+  }
+  clearForm(); document.getElementById('form-title-label').textContent='Nouveau CD';
+  saveLibrary(); showNotif('💾 CD enregistré !'); showScreen('screen-list');
+}
+
+function deleteCurrentCD() {
+  if(!confirm('Supprimer ce CD de la collection ?')) return;
+  cds = cds.filter(c=>c.id!==currentDetailId);
+  saveLibrary(); showNotif('🗑 CD supprimé'); showScreen('screen-list');
+}
+
+function onSearch() { renderList(); }
+function setSort(s) { currentSort=s; document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active')); document.getElementById('sort-'+s)?.classList.add('active'); renderList(); }
+function toggleFilter() { document.getElementById('filter-bar').classList.toggle('open'); document.getElementById('filter-toggle').classList.toggle('active'); }
+function setGenre(g) { favsOnly=false; currentGenre=g; document.querySelectorAll('.filter-chip').forEach(c=>c.classList.toggle('active',c.dataset.genre===g&&c.id!=='favs-chip')); renderList(); }
+function setFavsOnly() { favsOnly=!favsOnly; currentGenre=''; document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active')); if(favsOnly) document.getElementById('favs-chip').classList.add('active'); else document.querySelector('[data-genre=""]').classList.add('active'); renderList(); }
+
+function showScreen(id) {
+  if(id!=='screen-scan') stopCamera();
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  const map={'screen-list':'nav-list','screen-scan':'nav-scan','screen-add':'nav-add','screen-stats':'nav-stats'};
+  if(map[id]) document.getElementById(map[id]).classList.add('active');
+  if(id==='screen-list') renderList();
+  if(id==='screen-stats') renderStats();
+}
+
+// ═══ STATS ════════════════════════════════════════════════
+function renderStats() {
+  if(!cds.length){document.getElementById('stats-content').innerHTML='<div class="empty-state"><div class="big">📊</div><p>Importez votre CSV pour voir les statistiques.</p></div>';return;}
+  const favs=cds.filter(c=>c.fav).length;
+  const totalTracks=cds.reduce((s,c)=>s+(c.tracks?.length||0),0);
+  const withR=cds.filter(c=>c.rating>0);
+  const avgR=withR.length?withR.reduce((s,c)=>s+c.rating,0)/withR.length:0;
+  const gMap={};cds.forEach(c=>{if(c.genre)gMap[c.genre]=(gMap[c.genre]||0)+1;});
+  const topG=Object.entries(gMap).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const maxG=topG[0]?.[1]||1;
+  const dMap={};cds.filter(c=>c.year).forEach(c=>{const d=Math.floor(c.year/10)*10;dMap[d]=(dMap[d]||0)+1;});
+  const topD=Object.entries(dMap).sort((a,b)=>b[1]-a[1])[0];
+  const aMap={};cds.forEach(c=>{if(c.artist)aMap[c.artist]=(aMap[c.artist]||0)+1;});
+  const topA=Object.entries(aMap).sort((a,b)=>b[1]-a[1])[0];
+  document.getElementById('stats-content').innerHTML=`
+    <div class="stats-hero"><div class="stats-number">${cds.length}</div><div class="stats-label">albums dans la collection</div></div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-val" style="color:var(--accent)">⭐ ${favs}</div><div class="stat-key">favoris</div></div>
+      <div class="stat-card"><div class="stat-val">${totalTracks.toLocaleString('fr')}</div><div class="stat-key">pistes totales</div></div>
+      <div class="stat-card"><div class="stat-val">${avgR>0?'★ '+avgR.toFixed(1):'—'}</div><div class="stat-key">note moyenne</div></div>
+      <div class="stat-card"><div class="stat-val">${topD?topD[0]+'s':'—'}</div><div class="stat-key">décennie phare</div></div>
+    </div>
+    ${topA?`<div class="stat-card"><div style="font-size:11px;font-family:'Space Mono',monospace;color:var(--muted);margin-bottom:6px;">ARTISTE LE PLUS REPRÉSENTÉ</div><div style="font-size:18px;font-weight:700;">${topA[0]}</div><div class="stat-key">${topA[1]} albums</div></div>`:''}
+    ${topG.length?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;"><div style="font-size:12px;font-family:'Space Mono',monospace;color:var(--muted);margin-bottom:14px;">GENRES</div><div class="genre-bars">${topG.map(([g,n])=>`<div class="genre-row"><div class="genre-name">${g}</div><div class="genre-bar-wrap"><div class="genre-bar-fill" style="width:${Math.round(n/maxG*100)}%"></div></div><div class="genre-count">${n}</div></div>`).join('')}</div></div>`:''}
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;">
+      <button class="btn-action primary" onclick="exportCSV()">⬇ Exporter en CSV</button>
+      <button class="btn-action danger" onclick="clearLibrary()">🗑 Effacer la mémoire</button>
+    </div>
+    <div style="height:80px;"></div>`;
+}
+
+async function clearLibrary() {
+  if(!confirm('Effacer toute la collection sauvegardée ?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  cds=[]; nextId=1; allGenres=[];
+  renderGenreChips(); showNotif('🗑 Collection effacée'); showScreen('screen-list');
+}
+
+function exportCSV() {
+  const rows = cds.map(cd => ['titre','artiste','annee','genre','notes','pochette','discogs_id'].map((_,i)=>`"${String([cd.title,cd.artist,cd.year||'',cd.genre||'',cd.notes||'',cd.cover||'',cd.discogs||''][i]).replace(/"/g,'""')}"`).join(','));
+  const blob = new Blob([['titre,artiste,annee,genre,notes,pochette,discogs_id',...rows].join('\n')],{type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cdtheque.csv'; a.click();
+  showNotif('⬇ Export prêt !');
+}
+
+function showNotif(msg){const n=document.getElementById('notif');n.textContent=msg;n.classList.add('show');setTimeout(()=>n.classList.remove('show'),2500);}
+
+// Drag & drop CSV
+const iz=document.getElementById('import-zone');
+iz.addEventListener('dragover',e=>{e.preventDefault();iz.classList.add('dragover');});
+iz.addEventListener('dragleave',()=>iz.classList.remove('dragover'));
+iz.addEventListener('drop',e=>{e.preventDefault();iz.classList.remove('dragover');const f=e.dataTransfer.files[0];if(f){const dt=new DataTransfer();dt.items.add(f);document.getElementById('csvFileInput').files=dt.files;importCSV({target:{files:[f],value:''}});}});
+
+// ═══ INIT ═════════════════════════════════════════════════
+loadLibrary();
+</script>
+</body>
+</html>
