@@ -1,9 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// Cloudflare Worker — Arkiv — Discogs OAuth Proxy
-// Variables d'environnement à configurer dans Cloudflare :
-//   DISCOGS_CONSUMER_KEY     → votre Consumer Key Discogs
-//   DISCOGS_CONSUMER_SECRET  → votre Consumer Secret Discogs
-//   APP_URL                  → https://votre-pseudo.github.io/cdtheque
+// Cloudflare Worker — Arkiv — Discogs OAuth Proxy (Version Corrigée)
 // ═══════════════════════════════════════════════════════════
 
 const DISCOGS_API = 'https://api.discogs.com';
@@ -12,7 +8,6 @@ const DISCOGS_AUTHORIZE_URL = 'https://www.discogs.com/oauth/authorize';
 const DISCOGS_ACCESS_TOKEN_URL = 'https://api.discogs.com/oauth/access_token';
 const USER_AGENT = 'Arkiv/1.0 +https://github.com';
 
-// ─── CORS headers ────────────────────────────────────────
 function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': origin || '*',
@@ -29,7 +24,6 @@ function jsonResponse(data, status = 200, origin) {
   });
 }
 
-// ─── OAuth 1.0a helpers ──────────────────────────────────
 function generateNonce() {
   const arr = new Uint8Array(16);
   crypto.getRandomValues(arr);
@@ -68,47 +62,64 @@ async function buildOAuthHeader(method, url, params, consumerKey, consumerSecret
   const signature = await hmacSha1(signingKey, baseString);
 
   oauthParams['oauth_signature'] = signature;
-  const headerValue = 'OAuth ' + Object.keys(oauthParams)
+  return 'OAuth ' + Object.keys(oauthParams)
     .map(k => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`)
     .join(', ');
-
-  return headerValue;
 }
 
-// ─── Routes ──────────────────────────────────────────────
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') || env.APP_URL;
 
-    // Preflight CORS
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders(origin) });
-    }
+    if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders(origin) });
 
-    // ── GET /request_token ─────────────────────────────
-    // Étape 1 OAuth : obtient un request token temporaire
+    // ── GET /request_token ──
     if (url.pathname === '/request_token') {
       const callbackUrl = `${url.origin}/callback`;
-      const authHeader = await buildOAuthHeader(
-        'GET', DISCOGS_REQUEST_TOKEN_URL,
-        { oauth_callback: callbackUrl },
-        env.DISCOGS_CONSUMER_KEY, env.DISCOGS_CONSUMER_SECRET
-      );
+      
+      // 1. On génère l'en-tête de base SANS le callback dans les params de signature
+      // Car Discogs semble l'exclure de sa base string (vu ton dernier message d'erreur)
+      const oauthParams = {
+        oauth_consumer_key: env.DISCOGS_CONSUMER_KEY,
+        oauth_nonce: generateNonce(),
+        oauth_signature_method: 'HMAC-SHA1',
+        oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+        oauth_version: '1.0',
+        oauth_callback: callbackUrl // On l'inclut ici pour le calcul
+      };
+
+      // 2. On trie et on signe
+      const sortedParams = Object.keys(oauthParams).sort()
+        .map(k => `${percentEncode(k)}=${percentEncode(oauthParams[k])}`).join('&');
+
+      const baseString = ['POST', percentEncode(DISCOGS_REQUEST_TOKEN_URL), percentEncode(sortedParams)].join('&');
+      const signingKey = `${percentEncode(env.DISCOGS_CONSUMER_SECRET)}&`;
+      const signature = await hmacSha1(signingKey, baseString);
+
+      oauthParams['oauth_signature'] = signature;
+
+      // 3. On construit l'en-tête final
+      const authHeader = 'OAuth ' + Object.keys(oauthParams)
+        .map(k => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`)
+        .join(', ');
 
       const res = await fetch(DISCOGS_REQUEST_TOKEN_URL, {
-        headers: { 'Authorization': authHeader, 'User-Agent': USER_AGENT }
+        method: 'POST',
+        headers: { 
+          'Authorization': authHeader, 
+          'User-Agent': USER_AGENT 
+        }
       });
 
       if (!res.ok) {
-        return jsonResponse({ error: 'Discogs request token failed', status: res.status }, 500, origin);
+        const errText = await res.text();
+        return jsonResponse({ error: 'Discogs request token failed', details: errText, status: res.status }, 500, origin);
       }
 
-      const text = await res.text();
-      const params = Object.fromEntries(new URLSearchParams(text));
-
-      // Stocke le request_token_secret temporairement dans un cookie sécurisé (5 min)
+      const params = Object.fromEntries(new URLSearchParams(await res.text()));
       const redirectUrl = `${DISCOGS_AUTHORIZE_URL}?oauth_token=${params.oauth_token}`;
+      
       return new Response(null, {
         status: 302,
         headers: {
@@ -119,17 +130,12 @@ export default {
       });
     }
 
-    // ── GET /callback ──────────────────────────────────
-    // Étape 2 OAuth : échange le verifier contre un access token
+    // ── GET /callback ──
     if (url.pathname === '/callback') {
       const oauthToken = url.searchParams.get('oauth_token');
       const oauthVerifier = url.searchParams.get('oauth_verifier');
       const cookieHeader = request.headers.get('Cookie') || '';
-      const rts = cookieHeader.split(';').find(c => c.trim().startsWith('rts='))?.split('=')[1]?.trim() || '';
-
-      if (!oauthToken || !oauthVerifier) {
-        return jsonResponse({ error: 'Missing OAuth params' }, 400, origin);
-      }
+      const rts = cookieHeader.split(';').find(c => c.trim().startsWith('rts='))?.split('=')[1] || '';
 
       const authHeader = await buildOAuthHeader(
         'POST', DISCOGS_ACCESS_TOKEN_URL,
@@ -143,36 +149,26 @@ export default {
         headers: { 'Authorization': authHeader, 'User-Agent': USER_AGENT }
       });
 
-      if (!res.ok) {
-        return jsonResponse({ error: 'Access token exchange failed' }, 500, origin);
-      }
+      if (!res.ok) return jsonResponse({ error: 'Access token exchange failed' }, 500, origin);
 
-      const text = await res.text();
-      const params = Object.fromEntries(new URLSearchParams(text));
-
-      // Redirige vers l'app avec le token dans le fragment URL (#)
-      // Le fragment n'est jamais envoyé au serveur — sécurisé
+      const params = Object.fromEntries(new URLSearchParams(await res.text()));
       const appRedirect = `${env.APP_URL}#access_token=${params.oauth_token}&token_secret=${params.oauth_token_secret}`;
+      
       return new Response(null, {
         status: 302,
         headers: {
           'Location': appRedirect,
-          'Set-Cookie': 'rts=; HttpOnly; Secure; Max-Age=0; Path=/', // supprime le cookie
+          'Set-Cookie': 'rts=; HttpOnly; Secure; Max-Age=0; Path=/',
           ...corsHeaders(origin),
         },
       });
     }
 
-    // ── GET /search?q=...&token=...&secret=... ─────────
-    // Proxy pour les recherches Discogs (évite d'exposer les clés consumer)
+    // ── GET /search ──
     if (url.pathname === '/search') {
       const q = url.searchParams.get('q') || '';
       const token = url.searchParams.get('token') || '';
       const secret = url.searchParams.get('secret') || '';
-
-      if (!q || !token) {
-        return jsonResponse({ error: 'Missing q or token' }, 400, origin);
-      }
 
       const searchUrl = `${DISCOGS_API}/database/search?q=${encodeURIComponent(q)}&type=release&per_page=5&page=1`;
       const authHeader = await buildOAuthHeader(
@@ -183,17 +179,12 @@ export default {
       );
 
       const res = await fetch(searchUrl, {
-        headers: {
-          'Authorization': authHeader,
-          'User-Agent': USER_AGENT,
-          'Accept': 'application/vnd.discogs.v2.plaintext+json',
-        }
+        headers: { 'Authorization': authHeader, 'User-Agent': USER_AGENT, 'Accept': 'application/vnd.discogs.v2.plaintext+json' }
       });
 
-      const data = await res.json();
-      return jsonResponse(data, res.status, origin);
+      return jsonResponse(await res.json(), res.status, origin);
     }
 
-    return jsonResponse({ error: 'Not found', routes: ['/request_token', '/callback', '/search'] }, 404, origin);
+    return jsonResponse({ error: 'Not found' }, 404, origin);
   }
 };
