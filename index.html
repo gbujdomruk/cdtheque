@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Ma CDthèque">
+<meta name="apple-mobile-web-app-title" content="Arkiv">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#0e0e11">
-<title>Ma CDthèque</title>
+<title>Arkiv</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
   :root{--bg:#0e0e11;--surface:#18181d;--surface2:#222228;--accent:#e8ff47;--accent2:#ff6b35;--text:#f0efe8;--muted:#888880;--border:rgba(240,239,232,0.1);--card-r:16px;}
@@ -146,8 +146,8 @@
 <!-- ═══ LISTE ═══ -->
 <div class="screen active" id="screen-list">
   <div class="header">
-    <div class="logo">Ma <span>CD</span>thèque</div>
-    <div class="header-stats"><strong id="total-count">…</strong>albums</div>
+    <div class="logo"><span>Ark</span>iv</div>
+    <div class="header-stats"><strong id="total-count">…</strong>médias</div>
   </div>
   <div class="search-wrap">
     <input class="search-input" id="search-input" placeholder="Rechercher artiste, titre…" oninput="onSearch()">
@@ -210,7 +210,7 @@
     <div class="form-body">
       <div class="import-zone" id="import-zone" onclick="document.getElementById('csvFileInput').click()">
         <div style="font-size:28px;margin-bottom:6px;">📂</div>
-        <div style="font-weight:700;font-size:15px;color:var(--text);">Importer MusicBuddy CSV</div>
+        <div style="font-weight:700;font-size:15px;color:var(--text);">Importer catalogue CSV</div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px;">Glissez ou appuyez pour choisir</div>
       </div>
       <div id="import-progress" style="display:none;">
@@ -298,7 +298,7 @@
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;">
         <div style="font-size:13px;font-weight:700;margin-bottom:6px;">🔑 Token Discogs</div>
         <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:12px;">
-          Votre token personnel permet de rechercher les CDs via Discogs (15M+ albums).<br>
+          Votre token personnel permet de rechercher les CDs via Discogs (15M+ médias).<br>
           Il est sauvegardé <strong style="color:var(--text)">uniquement sur votre appareil</strong>, jamais dans le code.
         </div>
         <div id="token-status" style="font-family:'Space Mono',monospace;font-size:11px;padding:8px 12px;border-radius:8px;margin-bottom:12px;"></div>
@@ -327,7 +327,7 @@
       </div>
 
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:12px;color:var(--muted);line-height:1.7;">
-        <strong style="color:var(--text);">Ma CDthèque</strong> — Application personnelle.<br>
+        <strong style="color:var(--text);">Arkiv</strong> — Application personnelle.<br>
         Données stockées localement sur votre appareil.<br>
         Métadonnées : Discogs · MusicBrainz · Cover Art Archive.
       </div>
@@ -348,7 +348,7 @@
 
 <script>
 // ═══ ÉTAT ════════════════════════════════════════════════
-const STORAGE_KEY = 'cdtheque-v1';
+const STORAGE_KEY = 'arkiv-v1';
 let cds = [], filtered = [], allGenres = [];
 let currentSort = 'title', currentGenre = '', favsOnly = false;
 let editingId = null, currentDetailId = null, nextId = 1;
@@ -378,7 +378,7 @@ function loadLibrary() {
       nextId = d.nextId || cds.length + 1;
       allGenres = d.genres || [];
       renderGenreChips();
-      showNotif(`📚 ${cds.length} albums chargés`);
+      showNotif(`📚 ${cds.length} médias chargés`);
     }
   } catch(e) {}
   renderList();
@@ -412,7 +412,7 @@ function importCSV(event) {
           rating: header.indexOf('rating'), favorites: header.indexOf('favorites')
         };
         document.getElementById('progress-fill').style.width = '60%';
-        document.getElementById('load-status').textContent = `Analyse de ${lines.length-1} albums…`;
+        document.getElementById('load-status').textContent = `Analyse de ${lines.length-1} médias…`;
         const imported = []; const genreSet = new Set();
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
@@ -440,11 +440,11 @@ function importCSV(event) {
         saveLibrary();
         setTimeout(() => {
           document.getElementById('progress-fill').style.width = '100%';
-          document.getElementById('load-status').textContent = `${imported.length} albums importés !`;
+          document.getElementById('load-status').textContent = `${imported.length} médias importés !`;
           event.target.value = '';
           setTimeout(() => {
             document.getElementById('import-progress').style.display = 'none';
-            showNotif(`✅ ${imported.length} albums importés !`);
+            showNotif(`✅ ${imported.length} médias importés !`);
             showScreen('screen-list');
           }, 600);
         }, 800);
@@ -611,10 +611,10 @@ async function lookupBarcode(code) {
     // q= est plus fiable que barcode= sur l'API Discogs
     const cleanCode = code.replace(/\D/g, '');
     const res = await fetch(
-      `https://api.discogs.com/database/search?q=${cleanCode}&type=release&per_page=5&page=1`,
+      `https://api.discogs.com/database/search?q=${cleanCode}&type=release&per_page=5&page=1&token=${DISCOGS_TOKEN}`,
       {headers: {
-        'Authorization': `Discogs token=${DISCOGS_TOKEN}`,
-        'User-Agent': 'CDtheque/1.0'
+        'User-Agent': 'Arkiv/1.0 +https://github.com',
+        'Accept': 'application/vnd.discogs.v2.plaintext+json'
       }}
     );
     if (res.ok) {
@@ -660,7 +660,8 @@ async function lookupBarcode(code) {
   try {
     const res = await fetch(
       `https://musicbrainz.org/ws/2/release/?query=barcode:${code}&fmt=json&limit=1`,
-      {headers: {'User-Agent': 'CDtheque/1.0'}}
+        'User-Agent': 'Arkiv/1.0 +https://github.com',
+        'Accept': 'application/vnd.discogs.v2.plaintext+json'
     );
     if (res.ok) {
       const data = await res.json();
@@ -668,7 +669,8 @@ async function lookupBarcode(code) {
         const releaseId = data.releases[0].id;
         const fullRes = await fetch(
           `https://musicbrainz.org/ws/2/release/${releaseId}?fmt=json&inc=artist-credits+release-groups+genres+tags`,
-          {headers: {'User-Agent': 'CDtheque/1.0'}}
+        'User-Agent': 'Arkiv/1.0 +https://github.com',
+        'Accept': 'application/vnd.discogs.v2.plaintext+json'
         );
         if (!fullRes.ok) throw new Error();
         const r = await fullRes.json();
@@ -690,7 +692,7 @@ async function lookupBarcode(code) {
         const rgId = r['release-group']?.id || '';
         if (rgId) {
           try {
-            const rgRes = await fetch(`https://musicbrainz.org/ws/2/release-group/${rgId}?fmt=json&inc=genres`, {headers:{'User-Agent':'CDtheque/1.0'}});
+            const rgRes = await fetch(`https://musicbrainz.org/ws/2/release-group/${rgId}?fmt=json&inc=genres`, {headers:{'User-Agent':'Arkiv/1.0'}});
             if (rgRes.ok) {
               const rgData = await rgRes.json();
               for (const g of (rgData.genres||[]).sort((a,b)=>(b.count||0)-(a.count||0))) {
@@ -933,14 +935,14 @@ function renderStats() {
   const aMap={};cds.forEach(c=>{if(c.artist)aMap[c.artist]=(aMap[c.artist]||0)+1;});
   const topA=Object.entries(aMap).sort((a,b)=>b[1]-a[1])[0];
   document.getElementById('stats-content').innerHTML=`
-    <div class="stats-hero"><div class="stats-number">${cds.length}</div><div class="stats-label">albums dans la collection</div></div>
+    <div class="stats-hero"><div class="stats-number">${cds.length}</div><div class="stats-label">médias dans la collection</div></div>
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-val" style="color:var(--accent)">⭐ ${favs}</div><div class="stat-key">favoris</div></div>
       <div class="stat-card"><div class="stat-val">${totalTracks.toLocaleString('fr')}</div><div class="stat-key">pistes totales</div></div>
       <div class="stat-card"><div class="stat-val">${avgR>0?'★ '+avgR.toFixed(1):'—'}</div><div class="stat-key">note moyenne</div></div>
       <div class="stat-card"><div class="stat-val">${topD?topD[0]+'s':'—'}</div><div class="stat-key">décennie phare</div></div>
     </div>
-    ${topA?`<div class="stat-card"><div style="font-size:11px;font-family:'Space Mono',monospace;color:var(--muted);margin-bottom:6px;">ARTISTE LE PLUS REPRÉSENTÉ</div><div style="font-size:18px;font-weight:700;">${topA[0]}</div><div class="stat-key">${topA[1]} albums</div></div>`:''}
+    ${topA?`<div class="stat-card"><div style="font-size:11px;font-family:'Space Mono',monospace;color:var(--muted);margin-bottom:6px;">ARTISTE LE PLUS REPRÉSENTÉ</div><div style="font-size:18px;font-weight:700;">${topA[0]}</div><div class="stat-key">${topA[1]} médias</div></div>`:''}
     ${topG.length?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;"><div style="font-size:12px;font-family:'Space Mono',monospace;color:var(--muted);margin-bottom:14px;">GENRES</div><div class="genre-bars">${topG.map(([g,n])=>`<div class="genre-row"><div class="genre-name">${g}</div><div class="genre-bar-wrap"><div class="genre-bar-fill" style="width:${Math.round(n/maxG*100)}%"></div></div><div class="genre-count">${n}</div></div>`).join('')}</div></div>`:''}
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;">
       <button class="btn-action primary" onclick="exportCSV()">⬇ Exporter en CSV</button>
@@ -959,7 +961,7 @@ async function clearLibrary() {
 function exportCSV() {
   const rows = cds.map(cd => ['titre','artiste','annee','genre','notes','pochette','discogs_id'].map((_,i)=>`"${String([cd.title,cd.artist,cd.year||'',cd.genre||'',cd.notes||'',cd.cover||'',cd.discogs||''][i]).replace(/"/g,'""')}"`).join(','));
   const blob = new Blob([['titre,artiste,annee,genre,notes,pochette,discogs_id',...rows].join('\n')],{type:'text/csv;charset=utf-8;'});
-  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cdtheque.csv'; a.click();
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='arkiv.csv'; a.click();
   showNotif('⬇ Export prêt !');
 }
 
@@ -1005,12 +1007,6 @@ iz.addEventListener('drop',e=>{e.preventDefault();iz.classList.remove('dragover'
 // ═══ INIT ═════════════════════════════════════════════════
 loadLibrary();
 
-// ═══ SERVICE WORKER (PWA offline) ════════════════════════
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  });
-}
 </script>
 </body>
 </html>
