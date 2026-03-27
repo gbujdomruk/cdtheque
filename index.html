@@ -209,24 +209,16 @@
   </div>
   <div class="scroll-area">
     <div class="form-body">
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        <div class="import-zone" id="import-zone" onclick="document.getElementById('csvFileInput').click()">
-          <div style="font-size:24px;margin-bottom:4px;">🎵 📂</div>
-          <div style="font-weight:700;font-size:14px;color:var(--text);">Importer MusicBuddy CSV</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Albums, CDs, vinyles…</div>
-        </div>
-        <div class="import-zone" id="import-zone-movie" onclick="document.getElementById('csvFileInputMovie').click()">
-          <div style="font-size:24px;margin-bottom:4px;">🎬 📂</div>
-          <div style="font-weight:700;font-size:14px;color:var(--text);">Importer MovieBuddy CSV</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Films, séries, DVD, Blu-ray…</div>
-        </div>
+      <div class="import-zone" id="import-zone" onclick="document.getElementById('csvFileInput').click()">
+        <div style="font-size:28px;margin-bottom:6px;">📂</div>
+        <div style="font-weight:700;font-size:15px;color:var(--text);">Importer catalogue CSV</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">Glissez ou appuyez pour choisir</div>
       </div>
       <div id="import-progress" style="display:none;">
         <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
         <div class="load-status" id="load-status">Chargement…</div>
       </div>
       <input type="file" id="csvFileInput" accept=".csv" onchange="importCSV(event)">
-      <input type="file" id="csvFileInputMovie" accept=".csv" onchange="importMovieCSV(event)">
       <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;">
         <div style="flex:1;height:1px;background:var(--border);"></div><span>ou saisir manuellement</span><div style="flex:1;height:1px;background:var(--border);"></div>
       </div>
@@ -244,7 +236,7 @@
         </select>
       </div>
       <div class="form-group"><div class="form-label">TITRE *</div><input class="form-input" id="f-title" placeholder="Ex: Nevermind"></div>
-      <div class="form-group"><div class="form-label">ARTISTE / RÉALISATEUR *</div><input class="form-input" id="f-artist" placeholder="Ex: Nirvana / Christopher Nolan"></div>
+      <div class="form-group"><div class="form-label">ARTISTE *</div><input class="form-input" id="f-artist" placeholder="Ex: Nirvana"></div>
       <div class="form-row">
         <div class="form-group"><div class="form-label">ANNÉE</div><input class="form-input" id="f-year" placeholder="1991" type="number" inputmode="numeric"></div>
         <div class="form-group"><div class="form-label">GENRE</div><input class="form-input" id="f-genre" placeholder="Rock" list="genre-list">
@@ -252,11 +244,6 @@
         </div>
       </div>
       <div class="form-group"><div class="form-label">NOTES</div><input class="form-input" id="f-notes" placeholder="État, édition…"></div>
-      <div class="form-row">
-        <div class="form-group"><div class="form-label">DURÉE (min)</div><input class="form-input" id="f-runtime" placeholder="120" type="number" inputmode="numeric"></div>
-        <div class="form-group"><div class="form-label">ID IMDB/TMDB</div><input class="form-input" id="f-extid" placeholder="tt1234567"></div>
-      </div>
-      <div class="form-group"><div class="form-label">RÉSUMÉ</div><textarea class="form-input" id="f-summary" rows="3" placeholder="Synopsis…"></textarea></div>
       <div class="form-group"><div class="form-label">POCHETTE (URL)</div><input class="form-input" id="f-cover" placeholder="https://…" type="url"></div>
       <div class="form-group"><div class="form-label">PISTES (une par ligne)</div><textarea class="form-input" id="f-tracks" rows="4" placeholder="1. Titre&#10;2. Titre…"></textarea></div>
       <input type="hidden" id="f-id">
@@ -406,9 +393,7 @@ function fmtDur(s){if(!s)return'';return Math.floor(s/60)+':'+(s%60<10?'0':'')+s
 function getEmoji(genre, mediaType) {
   const m = (mediaType||'').toLowerCase();
   if(m==='vinyle') return '🎵';
-  if(m==='dvd') return '📀';
-  if(m==='blu-ray') return '📀';
-  if(m==='série'||m==='serie'||m==='tv') return '📺';
+  if(m==='dvd'||m==='blu-ray') return '📀';
   if(m==='livre') return '📚';
   if(m==='bd') return '🎨';
   if(m==='mp3') return '🎧';
@@ -482,120 +467,6 @@ function importCSV(event) {
         }, 800);
       } catch(err) {
         document.getElementById('load-status').textContent = 'Erreur lors de l\'import.';
-        console.error(err);
-      }
-    }, 50);
-  };
-  reader.readAsText(file, 'UTF-8');
-}
-
-// ═══ IMPORT MOVIEBUDDY CSV ═══════════════════════════════
-function importMovieCSV(event) {
-  const file = event.target.files[0]; if(!file) return;
-  document.getElementById('import-progress').style.display = 'block';
-  document.getElementById('progress-fill').style.width = '5%';
-  document.getElementById('load-status').textContent = 'Lecture du fichier films…';
-  const reader = new FileReader();
-  reader.onload = e => {
-    document.getElementById('progress-fill').style.width = '35%';
-    setTimeout(() => {
-      try {
-        const lines = e.target.result.split('
-').filter(l=>l.trim());
-        const header = parseCSVLine(lines[0]).map(h=>h.trim().toLowerCase());
-        const idx = {
-          title:       header.indexOf('title'),
-          contentType: header.indexOf('content type'),
-          runtime:     header.indexOf('runtime'),
-          year:        header.indexOf('release year'),
-          origYear:    header.indexOf('original release year'),
-          genres:      header.indexOf('genres'),
-          directors:   header.indexOf('directors'),
-          cast:        header.indexOf('cast'),
-          summary:     header.indexOf('summary'),
-          cover:       header.indexOf('uploaded image url'),
-          imdb:        header.indexOf('imdb id'),
-          tmdb:        header.indexOf('tmdb id'),
-          rating:      header.indexOf('rating'),
-          favorites:   header.indexOf('favorites'),
-          format:      header.indexOf('format'),
-          added:       header.indexOf('date added'),
-          upc:         header.indexOf('upc-ean13'),
-        };
-        document.getElementById('progress-fill').style.width = '60%';
-        document.getElementById('load-status').textContent = `Analyse de ${lines.length-1} films…`;
-        const imported = []; const genreSet = new Set();
-        for (let i = 1; i < lines.length; i++) {
-          if (!lines[i].trim()) continue;
-          const p = parseCSVLine(lines[i]);
-          const contentType = (idx.contentType>=0 ? p[idx.contentType]||'' : '').toLowerCase();
-          // Détermine le type de média
-          let mediaType = 'DVD';
-          const fmt = (idx.format>=0 ? p[idx.format]||'' : '').toLowerCase();
-          if (fmt.includes('blu')) mediaType = 'Blu-ray';
-          else if (contentType.includes('tv') || contentType.includes('show')) mediaType = 'Série';
-          // Genres
-          let genre = '';
-          if (idx.genres >= 0 && p[idx.genres]) {
-            try {
-              const gArr = JSON.parse(p[idx.genres]);
-              genre = Array.isArray(gArr) ? gArr[0] : p[idx.genres].split(',')[0].trim();
-            } catch(e) { genre = p[idx.genres].split(',')[0].trim(); }
-          }
-          if (genre) genreSet.add(genre);
-          // Réalisateur
-          let director = '';
-          if (idx.directors >= 0 && p[idx.directors]) {
-            try {
-              const dArr = JSON.parse(p[idx.directors]);
-              director = Array.isArray(dArr) ? dArr[0] : p[idx.directors];
-            } catch(e) { director = p[idx.directors]; }
-          }
-          // Acteurs principaux (3 premiers)
-          let castStr = '';
-          if (idx.cast >= 0 && p[idx.cast]) {
-            try {
-              const cArr = JSON.parse(p[idx.cast]);
-              if (Array.isArray(cArr)) castStr = cArr.slice(0,3).map(a=>a.actor||a.name||'').filter(Boolean).join(', ');
-            } catch(e) {}
-          }
-          // ID externe (IMDB ou TMDB)
-          const imdbId = idx.imdb>=0 ? (p[idx.imdb]||'').trim() : '';
-          const tmdbId = idx.tmdb>=0 ? (p[idx.tmdb]||'').trim() : '';
-          const extId = imdbId || (tmdbId ? tmdbId : '');
-          const year = (idx.year>=0 ? parseInt(p[idx.year]) : null) || (idx.origYear>=0 ? parseInt(p[idx.origYear]) : null) || null;
-          const runtime = idx.runtime>=0 ? parseInt(p[idx.runtime])||null : null;
-          const summary = (idx.summary>=0 ? p[idx.summary]||'' : '').trim();
-          const cover   = (idx.cover>=0   ? p[idx.cover]||''   : '').trim();
-          const title   = (idx.title>=0   ? p[idx.title]||''   : '').trim();
-          imported.push({
-            id: nextId++, title, artist: director, year, genre, mediaType,
-            tracks: [], cover, notes: castStr ? `Avec : ${castStr}` : '',
-            discogs: '', runtime, extId, summary,
-            fav: idx.favorites>=0 ? p[idx.favorites]==='1' : false,
-            rating: idx.rating>=0 ? parseFloat(p[idx.rating])||0 : 0,
-            added: i
-          });
-        }
-        const existing = cds.filter(c => !['DVD','Blu-ray','Série'].includes(c.mediaType));
-        cds = [...existing, ...imported];
-        allGenres = [...new Set(cds.map(c=>c.genre).filter(Boolean))].sort();
-        renderGenreChips();
-        document.getElementById('progress-fill').style.width = '90%';
-        document.getElementById('load-status').textContent = 'Sauvegarde locale…';
-        saveLibrary();
-        setTimeout(() => {
-          document.getElementById('progress-fill').style.width = '100%';
-          document.getElementById('load-status').textContent = `${imported.length} films/séries importés !`;
-          event.target.value = '';
-          setTimeout(() => {
-            document.getElementById('import-progress').style.display = 'none';
-            showNotif(`✅ ${imported.length} films importés !`);
-            showScreen('screen-list');
-          }, 600);
-        }, 800);
-      } catch(err) {
-        document.getElementById('load-status').textContent = 'Erreur lors de l'import.';
         console.error(err);
       }
     }, 50);
@@ -898,41 +769,22 @@ function prefillForm(cd) {
 }
 
 // ═══ LISTE ════════════════════════════════════════════════
-let currentMediaType = '';
 function renderGenreChips() {
   const bar = document.getElementById('filter-bar');
-  bar.innerHTML = `<div class="filter-chip active" onclick="setGenre('');setMediaType('')" data-genre="">Tous</div>
-    <div class="filter-chip" onclick="setFavsOnly()" id="favs-chip">⭐ Favoris</div>
-    <div class="filter-chip" onclick="setMediaType('music')" id="mtype-music">🎵 Musique</div>
-    <div class="filter-chip" onclick="setMediaType('video')" id="mtype-video">🎬 Vidéo</div>`;
-  allGenres.slice(0, 10).forEach(g => {
+  bar.innerHTML = `<div class="filter-chip active" onclick="setGenre('')" data-genre="">Tous</div>
+    <div class="filter-chip" onclick="setFavsOnly()" id="favs-chip">⭐ Favoris</div>`;
+  allGenres.slice(0, 14).forEach(g => {
     const c = document.createElement('div');
     c.className = 'filter-chip'; c.dataset.genre = g; c.textContent = g;
     c.onclick = () => setGenre(g); bar.appendChild(c);
   });
-}
-const MUSIC_TYPES = ['CD','Vinyle','MP3'];
-const VIDEO_TYPES = ['DVD','Blu-ray','Série'];
-function setMediaType(mtype) {
-  currentMediaType = mtype;
-  currentGenre = ''; favsOnly = false;
-  document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
-  if(mtype==='music') document.getElementById('mtype-music')?.classList.add('active');
-  else if(mtype==='video') document.getElementById('mtype-video')?.classList.add('active');
-  else document.querySelector('[data-genre=""]')?.classList.add('active');
-  renderList();
 }
 
 function applyFilter() {
   const q = document.getElementById('search-input').value.toLowerCase().trim();
   filtered = cds.filter(cd => {
     const m = !q || cd.title.toLowerCase().includes(q) || cd.artist.toLowerCase().includes(q) || (cd.genre||'').toLowerCase().includes(q);
-    const genreMatch = !currentGenre || cd.genre===currentGenre;
-    const favMatch = !favsOnly || cd.fav;
-    const typeMatch = !currentMediaType ||
-      (currentMediaType==='music' && MUSIC_TYPES.includes(cd.mediaType)) ||
-      (currentMediaType==='video' && VIDEO_TYPES.includes(cd.mediaType));
-    return m && genreMatch && favMatch && typeMatch;
+    return m && (!currentGenre || cd.genre===currentGenre) && (!favsOnly || cd.fav);
   });
   filtered.sort((a,b) => {
     if(currentSort==='title') return a.title.localeCompare(b.title,'fr');
@@ -968,7 +820,6 @@ function renderList() {
           ${cd.genre?`<span class="cd-tag genre">${cd.genre}</span>`:''}
           ${cd.year?`<span class="cd-tag year">${cd.year}</span>`:''}
           ${cd.tracks?.length?`<span class="cd-tag">${cd.tracks.length} pistes</span>`:''}
-          ${cd.runtime?`<span class="cd-tag">⏱ ${cd.runtime}min</span>`:''}
         </div>
       </div>
       <div class="cd-fav ${cd.fav?'on':''}">${cd.fav?'⭐':'☆'}</div>
@@ -1007,16 +858,7 @@ function showDetail(id) {
   let tracksHtml = '';
   if(cd.tracks?.length) tracksHtml = `<div class="tracks-title">PISTES</div>` +
     cd.tracks.map((t,i) => `<div class="track-item"><span class="track-num">${i+1}</span><span class="track-name">${t.name}</span>${t.dur?`<span class="track-dur">${fmtDur(t.dur)}</span>`:''}</div>`).join('');
-  // Durée + résumé + lien IMDB
-  let extraHtml = '';
-  if(cd.runtime) extraHtml += `<div style="font-size:13px;color:var(--muted);margin-top:8px;">⏱ ${cd.runtime} min</div>`;
-  if(cd.summary) extraHtml += `<div style="font-size:13px;color:var(--muted);margin-top:10px;line-height:1.6;">${cd.summary}</div>`;
-  if(cd.extId && cd.extId.startsWith('tt')) {
-    extraHtml += `<a class="discogs-link" href="https://www.imdb.com/title/${cd.extId}" target="_blank" style="margin-top:8px;">🎬 Voir sur IMDB</a>`;
-  } else if(cd.extId) {
-    extraHtml += `<a class="discogs-link" href="https://www.themoviedb.org/movie/${cd.extId}" target="_blank" style="margin-top:8px;">🎬 Voir sur TMDB</a>`;
-  }
-  document.getElementById('detail-tracks').innerHTML = tracksHtml + extraHtml;
+  document.getElementById('detail-tracks').innerHTML = tracksHtml;
   document.getElementById('detail-scroll').scrollTop = 0;
   showScreen('screen-detail');
 }
@@ -1037,9 +879,6 @@ function editCD() {
   document.getElementById('f-notes').value = cd.notes||'';
   document.getElementById('f-cover').value = cd.cover||'';
   if(document.getElementById('f-type')) document.getElementById('f-type').value = cd.mediaType||'CD';
-  if(document.getElementById('f-runtime')) document.getElementById('f-runtime').value = cd.runtime||'';
-  if(document.getElementById('f-extid')) document.getElementById('f-extid').value = cd.extId||'';
-  if(document.getElementById('f-summary')) document.getElementById('f-summary').value = cd.summary||'';
   document.getElementById('f-tracks').value = (cd.tracks||[]).map((t,i)=>`${i+1}. ${t.name}`).join('\n');
   showScreen('screen-add');
 }
@@ -1054,10 +893,10 @@ function saveCD() {
     .split('\n').map(t=>({name:t.replace(/^\d+[\.\)]\s*/,'').trim(),dur:0})).filter(t=>t.name);
   if(editingId) {
     const cd = cds.find(c=>c.id===editingId);
-    if(cd) { cd.title=title; cd.artist=document.getElementById('f-artist').value.trim(); cd.year=parseInt(document.getElementById('f-year').value)||null; cd.genre=document.getElementById('f-genre').value.trim(); cd.mediaType=document.getElementById('f-type')?.value||cd.mediaType; cd.notes=document.getElementById('f-notes').value.trim(); cd.cover=document.getElementById('f-cover').value.trim(); cd.tracks=tracks; cd.runtime=parseInt(document.getElementById('f-runtime').value)||cd.runtime||null; cd.extId=document.getElementById('f-extid').value.trim()||cd.extId||''; cd.summary=document.getElementById('f-summary').value.trim()||cd.summary||''; }
+    if(cd) { cd.title=title; cd.artist=document.getElementById('f-artist').value.trim(); cd.year=parseInt(document.getElementById('f-year').value)||null; cd.genre=document.getElementById('f-genre').value.trim(); cd.notes=document.getElementById('f-notes').value.trim(); cd.cover=document.getElementById('f-cover').value.trim(); cd.tracks=tracks; }
     editingId = null;
   } else {
-    cds.unshift({id:nextId++,title,artist:document.getElementById('f-artist').value.trim(),year:parseInt(document.getElementById('f-year').value)||null,genre:document.getElementById('f-genre').value.trim(),mediaType:document.getElementById('f-type').value,notes:document.getElementById('f-notes').value.trim(),cover:document.getElementById('f-cover').value.trim(),tracks,runtime:parseInt(document.getElementById('f-runtime').value)||null,extId:document.getElementById('f-extid').value.trim(),summary:document.getElementById('f-summary').value.trim(),fav:false,rating:0,discogs:'',added:nextId});
+    cds.unshift({id:nextId++,title,artist:document.getElementById('f-artist').value.trim(),year:parseInt(document.getElementById('f-year').value)||null,genre:document.getElementById('f-genre').value.trim(),mediaType:document.getElementById('f-type').value,notes:document.getElementById('f-notes').value.trim(),cover:document.getElementById('f-cover').value.trim(),tracks,fav:false,rating:0,discogs:'',added:nextId});
   }
   clearForm(); document.getElementById('form-title-label').textContent='Nouveau média';
   saveLibrary(); showNotif('💾 Média enregistré !'); showScreen('screen-list');
@@ -1194,14 +1033,6 @@ const iz=document.getElementById('import-zone');
 iz.addEventListener('dragover',e=>{e.preventDefault();iz.classList.add('dragover');});
 iz.addEventListener('dragleave',()=>iz.classList.remove('dragover'));
 iz.addEventListener('drop',e=>{e.preventDefault();iz.classList.remove('dragover');const f=e.dataTransfer.files[0];if(f){const dt=new DataTransfer();dt.items.add(f);document.getElementById('csvFileInput').files=dt.files;importCSV({target:{files:[f],value:''}});}});
-
-// Drag & drop MovieBuddy
-const izm = document.getElementById('import-zone-movie');
-if (izm) {
-  izm.addEventListener('dragover',e=>{e.preventDefault();izm.classList.add('dragover');});
-  izm.addEventListener('dragleave',()=>izm.classList.remove('dragover'));
-  izm.addEventListener('drop',e=>{e.preventDefault();izm.classList.remove('dragover');const f=e.dataTransfer.files[0];if(f){importMovieCSV({target:{files:[f],value:''}});}});
-}
 
 // ═══ INIT ═════════════════════════════════════════════════
 handleOAuthCallback();
