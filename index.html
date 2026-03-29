@@ -682,8 +682,7 @@ function importMovieCSV(event) {
           const year = (idx.year>=0 ? parseInt(p[idx.year]) : null) || (idx.origYear>=0 ? parseInt(p[idx.origYear]) : null) || null;
           const runtime = idx.runtime>=0 ? parseInt(p[idx.runtime])||null : null;
           const summary = (idx.summary>=0 ? p[idx.summary]||'' : '').trim();
-          const rawCover = (idx.cover>=0 ? p[idx.cover]||'' : '').trim();
-          const cover = rawCover || (tmdbId ? `__tmdb__${tmdbId}__${mediaType}` : '');
+          const cover   = (idx.cover>=0   ? p[idx.cover]||''   : '').trim();
           const title   = (idx.title>=0   ? p[idx.title]||''   : '').trim();
           imported.push({
             id: nextId++, title, artist: director, year, genre, mediaType,
@@ -708,7 +707,6 @@ function importMovieCSV(event) {
           setTimeout(() => {
             document.getElementById('import-progress').style.display = 'none';
             showNotif(`✅ ${imported.length} films importés !`);
-            resolveTmdbCovers(imported);
             showScreen('screen-list');
           }, 600);
         }, 800);
@@ -835,13 +833,12 @@ function importBdCSV(event) {
           const genre = isManga ? 'Manga' : 'BD';
           imported.push({
             id: nextId++, title, artist: serie||titre, year, genre,
-            mediaType, cover: isbn ? `__ol__${isbn.replace(/-/g,'')}` : '', notes: editeur ? `Éditeur : ${editeur}` : '',
+            mediaType, cover: '', notes: editeur ? `Éditeur : ${editeur}` : '',
             discogs: '', extId: isbn, summary: '', tracks: [], runtime: null,
             fav: false, rating: 0, added: i
           });
         }
         finalizeImport(imported, event, 'BD/Mangas');
-        resolveOLCovers(imported);
       } catch(err) {
         document.getElementById('load-status').textContent = "Erreur lors de l'import.";
         console.error(err);
@@ -961,14 +958,13 @@ function importBdCSV(event) {
           const mediaType = isManga ? 'Manga' : 'BD';
           imported.push({
             id: nextId++, title, artist: serie||titre, year,
-            genre: mediaType, mediaType, cover: isbn ? `__ol__${isbn.replace(/-/g,'')}` : '',
+            genre: mediaType, mediaType, cover: '',
             notes: editeur ? 'Éditeur : '+editeur : '',
             discogs: '', extId: isbn, summary: '', tracks: [], runtime: null,
             fav: false, rating: 0, added: i
           });
         }
         finalizeImport(imported, event, 'BD/Mangas');
-        resolveOLCovers(imported);
       } catch(err) {
         document.getElementById('load-status').textContent = "Erreur lors de l'import.";
         console.error(err);
@@ -976,29 +972,6 @@ function importBdCSV(event) {
     }, 50);
   };
   reader.readAsText(file, 'UTF-16LE');
-}
-
-// Résout les couvertures BD/Manga via Open Library (sans clé, par ISBN)
-async function resolveOLCovers(items) {
-  const toResolve = items.filter(c => (c.cover||'').startsWith('__ol__'));
-  if (!toResolve.length) return;
-  let updated = 0;
-  const BATCH = 5;
-  for (let i = 0; i < toResolve.length; i += BATCH) {
-    const batch = toResolve.slice(i, i + BATCH);
-    await Promise.all(batch.map(async item => {
-      const isbn = item.cover.replace('__ol__', '');
-      if (!isbn) { item.cover = ''; return; }
-      try {
-        const url = `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg?default=false`;
-        const res = await fetch(url, { method: 'HEAD' });
-        if (res.ok) { item.cover = url; updated++; }
-        else { item.cover = ''; }
-      } catch(e) { item.cover = ''; }
-    }));
-    if (i + BATCH < toResolve.length) await new Promise(r => setTimeout(r, 200));
-  }
-  if (updated > 0) { saveLibrary(); renderList(); showNotif(`🎨 ${updated} couvertures BD chargées !`); }
 }
 
 // Résout les jaquettes TMDB en arrière-plan (sans bloquer l'UI)
@@ -1544,7 +1517,7 @@ function renderList() {
   const totalPages = Math.ceil(filtered.length/PAGE_SIZE);
   list.innerHTML = filtered.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map(cd => `
     <div class="cd-card" onclick="showDetail(${cd.id})">
-      <div class="cd-cover">${cd.cover && !cd.cover.startsWith('__tmdb__') && !cd.cover.startsWith('__ol__')
+      <div class="cd-cover">${cd.cover && !cd.cover.startsWith('__tmdb__')
         ? `<img src="${cd.cover}" alt="" onerror="this.parentElement.innerHTML='<div style=font-size:24px>${getEmoji(cd.genre, cd.mediaType)}</div>'">`
         : `<div style="font-size:28px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">${getEmoji(cd.genre, cd.mediaType)}</div>`}</div>
       <div class="cd-info">
@@ -1581,7 +1554,7 @@ function showDetail(id) {
   document.getElementById('detail-artist').textContent = artistLabel + (cd.artist||'');
   document.getElementById('detail-fav-btn').textContent = cd.fav?'⭐':'☆';
   const cw = document.getElementById('detail-cover-wrap');
-  const validCover = cd.cover && !cd.cover.startsWith('__tmdb__') && !cd.cover.startsWith('__ol__');
+  const validCover = cd.cover && !cd.cover.startsWith('__tmdb__');
   cw.innerHTML = validCover
     ? `<img class="detail-cover-img" src="${cd.cover}" alt="" onerror="this.outerHTML='<div class=detail-cover-placeholder>${getEmoji(cd.genre, cd.mediaType)}</div>'">`
     : `<div class="detail-cover-placeholder">${getEmoji(cd.genre, cd.mediaType)}</div>`;
