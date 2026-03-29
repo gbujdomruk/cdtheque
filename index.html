@@ -607,114 +607,99 @@ function importCSV(event) {
 }
 
 // ═══ IMPORT MOVIEBUDDY CSV ═══════════════════════════════
-function importMovieCSV(event) {
-  const file = event.target.files[0]; if(!file) return;
+async function importMovieCSV(event) {
+  const file = event.target.files[0]; 
+  if(!file) return;
+
+  const apiKey = document.getElementById('tmdb-api-key')?.value || '';
+
   document.getElementById('import-progress').style.display = 'block';
   document.getElementById('progress-fill').style.width = '5%';
   document.getElementById('load-status').textContent = 'Lecture du fichier films…';
+
   const reader = new FileReader();
-  reader.onload = e => {
-    document.getElementById('progress-fill').style.width = '35%';
-    setTimeout(() => {
-      try {
-        const lines = e.target.result.split('\n').filter(l=>l.trim());
-        const header = parseCSVLine(lines[0]).map(h=>h.trim().toLowerCase());
-        const idx = {
-          title:       header.indexOf('title'),
-          contentType: header.indexOf('content type'),
-          runtime:     header.indexOf('runtime'),
-          year:        header.indexOf('release year'),
-          origYear:    header.indexOf('original release year'),
-          genres:      header.indexOf('genres'),
-          directors:   header.indexOf('directors'),
-          cast:        header.indexOf('cast'),
-          summary:     header.indexOf('summary'),
-          cover:       header.indexOf('uploaded image url'),
-          imdb:        header.indexOf('imdb id'),
-          tmdb:        header.indexOf('tmdb id'),
-          rating:      header.indexOf('rating'),
-          favorites:   header.indexOf('favorites'),
-          format:      header.indexOf('format'),
-          added:       header.indexOf('date added'),
-          upc:         header.indexOf('upc-ean13'),
-        };
-        document.getElementById('progress-fill').style.width = '60%';
-        document.getElementById('load-status').textContent = `Analyse de ${lines.length-1} films…`;
-        const imported = []; const genreSet = new Set();
-        for (let i = 1; i < lines.length; i++) {
-          if (!lines[i].trim()) continue;
-          const p = parseCSVLine(lines[i]);
-          const contentType = (idx.contentType>=0 ? p[idx.contentType]||'' : '').toLowerCase();
-          // Détermine le type de média
-          let mediaType = 'DVD';
-          const fmt = (idx.format>=0 ? p[idx.format]||'' : '').toLowerCase();
-          if (fmt.includes('blu')) mediaType = 'Blu-ray';
-          else if (contentType.includes('tv') || contentType.includes('show')) mediaType = 'Série';
-          // Genres
-          let genre = '';
-          if (idx.genres >= 0 && p[idx.genres]) {
-            try {
-              const gArr = JSON.parse(p[idx.genres]);
-              genre = Array.isArray(gArr) ? gArr[0] : p[idx.genres].split(',')[0].trim();
-            } catch(e) { genre = p[idx.genres].split(',')[0].trim(); }
-          }
-          if (genre) genreSet.add(genre);
-          // Réalisateur
-          let director = '';
-          if (idx.directors >= 0 && p[idx.directors]) {
-            try {
-              const dArr = JSON.parse(p[idx.directors]);
-              director = Array.isArray(dArr) ? dArr[0] : p[idx.directors];
-            } catch(e) { director = p[idx.directors]; }
-          }
-          // Acteurs principaux (3 premiers)
-          let castStr = '';
-          if (idx.cast >= 0 && p[idx.cast]) {
-            try {
-              const cArr = JSON.parse(p[idx.cast]);
-              if (Array.isArray(cArr)) castStr = cArr.slice(0,3).map(a=>a.actor||a.name||'').filter(Boolean).join(', ');
-            } catch(e) {}
-          }
-          // ID externe (IMDB ou TMDB)
-          const imdbId = idx.imdb>=0 ? (p[idx.imdb]||'').trim() : '';
-          const tmdbId = idx.tmdb>=0 ? (p[idx.tmdb]||'').trim() : '';
-          const extId = imdbId || (tmdbId ? tmdbId : '');
-          const year = (idx.year>=0 ? parseInt(p[idx.year]) : null) || (idx.origYear>=0 ? parseInt(p[idx.origYear]) : null) || null;
-          const runtime = idx.runtime>=0 ? parseInt(p[idx.runtime])||null : null;
-          const summary = (idx.summary>=0 ? p[idx.summary]||'' : '').trim();
-          const cover   = (idx.cover>=0   ? p[idx.cover]||''   : '').trim();
-          const title   = (idx.title>=0   ? p[idx.title]||''   : '').trim();
-          imported.push({
-            id: nextId++, title, artist: director, year, genre, mediaType,
-            tracks: [], cover, notes: castStr ? `Avec : ${castStr}` : '',
-            discogs: '', runtime, extId, summary,
-            fav: idx.favorites>=0 ? p[idx.favorites]==='1' : false,
-            rating: idx.rating>=0 ? parseFloat(p[idx.rating])||0 : 0,
-            added: i
-          });
+  reader.onload = async e => {
+    try {
+      const content = e.target.result;
+      const lines = content.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return;
+
+      const header = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+      
+      const idx = {
+        title: header.indexOf('title'),
+        year: header.indexOf('release year'),
+        origYear: header.indexOf('original release year'),
+        directors: header.indexOf('directors'),
+        genres: header.indexOf('genres'),
+        cover: header.indexOf('uploaded image url'),
+        summary: header.indexOf('summary'),
+        format: header.indexOf('format'),
+        favorites: header.indexOf('favorites'),
+        imdb: header.indexOf('imdb id'),
+        tmdb: header.indexOf('tmdb id')
+      };
+
+      const imported = [];
+      for (let i = 1; i < lines.length; i++) {
+        const p = parseCSVLine(lines[i]);
+        // Sécurité : on vérifie que la ligne a assez de colonnes pour le titre
+        if (!p || idx.title === -1 || !p[idx.title]) continue;
+
+        let title = p[idx.title].trim().replace(/^"|"$/g, '');
+        let year = (idx.year >= 0 && p[idx.year] ? parseInt(p[idx.year]) : null) || 
+                   (idx.origYear >= 0 && p[idx.origYear] ? parseInt(p[idx.origYear]) : null);
+        
+        // Protection sur la cover (L'erreur venait d'ici)
+        let cover = "";
+        if (idx.cover >= 0 && p[idx.cover]) {
+            cover = p[idx.cover].trim().replace(/^"|"$/g, '');
         }
-        const existing = cds.filter(c => !['DVD','Blu-ray','Série'].includes(c.mediaType));
-        cds = [...existing, ...imported];
-        allGenres = [...new Set(cds.map(c=>c.genre).filter(Boolean))].sort();
-        renderGenreChips();
-        document.getElementById('progress-fill').style.width = '90%';
-        document.getElementById('load-status').textContent = 'Sauvegarde locale…';
-        saveLibrary();
-        setTimeout(() => {
-          document.getElementById('progress-fill').style.width = '100%';
-          document.getElementById('load-status').textContent = `${imported.length} films/séries importés !`;
-          event.target.value = '';
-          setTimeout(() => {
-            document.getElementById('import-progress').style.display = 'none';
-            showNotif(`✅ ${imported.length} films importés !`);
-            showScreen('screen-list');
-          }, 600);
-        }, 800);
-      } catch(err) {
-        document.getElementById('load-status').textContent = "Erreur lors de l'import.";
-        console.error(err);
+
+        // --- APPEL TMDB SI PAS D'IMAGE ---
+        if (!cover && apiKey && title) {
+          document.getElementById('load-status').textContent = `Image pour : ${title}...`;
+          try {
+            const res = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&query=${encodeURIComponent(title)}&year=${year||''}`);
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+              cover = `https://image.tmdb.org/t/p/w500${data.results[0].poster_path}`;
+            }
+            await new Promise(r => setTimeout(r, 100)); 
+          } catch(err) { console.warn("TMDB error", err); }
+        }
+
+        // Construction de l'objet (avec sécurités sur chaque champ)
+        imported.push({
+          id: nextId++,
+          title: title,
+          artist: (idx.directors >= 0 && p[idx.directors]) ? p[idx.directors].replace(/^"|"$/g, '') : '',
+          year: year,
+          genre: (idx.genres >= 0 && p[idx.genres]) ? p[idx.genres].split(',')[0].replace(/^"|"$/g, '').trim() : '',
+          mediaType: (idx.format >= 0 && p[idx.format] && p[idx.format].toLowerCase().includes('blu')) ? 'Blu-ray' : 'DVD',
+          tracks: [],
+          cover: cover,
+          summary: (idx.summary >= 0 && p[idx.summary]) ? p[idx.summary].replace(/^"|"$/g, '') : '',
+          fav: idx.favorites >= 0 ? p[idx.favorites] === '1' : false,
+          extId: (idx.imdb >= 0 ? p[idx.imdb] : '') || (idx.tmdb >= 0 ? p[idx.tmdb] : ''),
+          added: Date.now()
+        });
+
+        document.getElementById('progress-fill').style.width = `${Math.floor((i/lines.length)*100)}%`;
       }
-    }, 50);
+
+      // Mise à jour de votre variable globale (cds)
+      cds = [...cds, ...imported]; 
+      saveLibrary(); 
+      if(typeof renderList === 'function') renderList();
+      
+      document.getElementById('import-progress').style.display = 'none';
+      showNotif(`✅ ${imported.length} films importés !`);
+
+    } catch(err) {
+      document.getElementById('load-status').textContent = "Erreur fatale lors de l'analyse.";
+      console.error("Erreur complète:", err);
+    }
   };
   reader.readAsText(file, 'UTF-8');
 }
