@@ -502,10 +502,12 @@ async function loadLibrary() {
         renderGenreChips();
         showNotif(`📚 ${cds.length} médias chargés`);
         // Résout en arrière-plan les couvertures encore en attente
-        const pendingTmdb = cds.filter(c => (c.cover||'').startsWith('__tmdb__'));
-        const pendingOL   = cds.filter(c => (c.cover||'').startsWith('__ol__'));
-        if (pendingTmdb.length) resolveTmdbCovers(pendingTmdb);
-        if (pendingOL.length)   resolveOLCovers(pendingOL);
+        // Limité à 50 par session pour ne pas surcharger (les suivantes seront traitées aux sessions suivantes)
+        const STARTUP_LIMIT = 50;
+        const pendingTmdb = cds.filter(c => (c.cover||'').startsWith('__tmdb__')).slice(0, STARTUP_LIMIT);
+        const pendingOL   = cds.filter(c => (c.cover||'').startsWith('__ol__')).slice(0, STARTUP_LIMIT);
+        if (pendingTmdb.length) setTimeout(() => resolveTmdbCovers(pendingTmdb), 2000);
+        if (pendingOL.length)   setTimeout(() => resolveOLCovers(pendingOL), 2000);
       }
       renderList();
     };
@@ -988,27 +990,20 @@ function importBdCSV(event) {
   reader.readAsText(file, 'UTF-16LE');
 }
 
-// Résout les couvertures BD/Manga via Open Library (sans clé, par ISBN)
-async function resolveOLCovers(items) {
-  const toResolve = items.filter(c => (c.cover||'').startsWith('__ol__'));
-  if (!toResolve.length) return;
+// Résout les couvertures BD/Manga via Open Library (sans requête réseau préalable)
+// On affecte directement l'URL — le navigateur gère les absences via onerror dans le template
+function resolveOLCovers(items) {
+  // items peut être une copie filtrée — on travaille directement sur cds par id
+  const idSet = new Set(items.map(c => c.id));
   let updated = 0;
-  const BATCH = 5;
-  for (let i = 0; i < toResolve.length; i += BATCH) {
-    const batch = toResolve.slice(i, i + BATCH);
-    await Promise.all(batch.map(async item => {
-      const isbn = item.cover.replace('__ol__', '');
-      if (!isbn) { item.cover = ''; return; }
-      try {
-        const url = `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg?default=false`;
-        const res = await fetch(url, { method: 'HEAD' });
-        if (res.ok) { item.cover = url; updated++; }
-        else { item.cover = ''; }
-      } catch(e) { item.cover = ''; }
-    }));
-    if (i + BATCH < toResolve.length) await new Promise(r => setTimeout(r, 200));
-  }
-  if (updated > 0) { saveLibrary(); renderList(); showNotif(`🎨 ${updated} couvertures BD chargées !`); }
+  cds.forEach(item => {
+    if (!idSet.has(item.id)) return;
+    if (!(item.cover||'').startsWith('__ol__')) return;
+    const isbn = item.cover.replace('__ol__', '');
+    item.cover = isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg` : '';
+    updated++;
+  });
+  if (updated > 0) { saveLibrary(); renderList(); }
 }
 
 // Résout les jaquettes TMDB en arrière-plan (sans bloquer l'UI)
@@ -1036,15 +1031,12 @@ async function resolveTmdbCovers(items) {
           // Met aussi à jour le synopsis si vide
           if (!item.summary && data.overview) item.summary = data.overview;
           updated++;
-        } else {
-          item.cover = '';
         }
-      } else {
-        item.cover = '';
+        // Si pas de poster : on garde le placeholder __tmdb__ pour réessayer plus tard
       }
       // Petite pause pour ne pas surcharger l'API
       await new Promise(r => setTimeout(r, 120));
-    } catch(e) { item.cover = ''; }
+    } catch(e) { /* réseau KO : on garde le placeholder pour réessayer */ }
   }
   if (updated > 0) {
     saveLibrary();
@@ -1053,36 +1045,7 @@ async function resolveTmdbCovers(items) {
   }
 }
 
-async function resolveTmdbCovers(items) {
-  const tmdbKey = localStorage.getItem('tmdb_api_key') || '';
-  if (!tmdbKey) return;
-  const toResolve = items.filter(c => (c.cover||'').startsWith('__tmdb__'));
-  if (!toResolve.length) return;
-  let updated = 0;
-  for (const item of toResolve) {
-    const parts = item.cover.split('__');
-    const tmdbId = parts[2];
-    const mtype  = parts[3] || 'DVD';
-    try {
-      const endpoint = mtype === 'Série' ? 'tv' : 'movie';
-      const res = await fetch(
-        `https://api.themoviedb.org/3/${endpoint}/${tmdbId}?api_key=${tmdbKey}&language=fr-FR`,
-        { headers: { 'Accept': 'application/json' } }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const path = data.poster_path;
-        if (path) {
-          item.cover = 'https://image.tmdb.org/t/p/w342' + path;
-          if (!item.summary && data.overview) item.summary = data.overview;
-          updated++;
-        } else { item.cover = ''; }
-      } else { item.cover = ''; }
-      await new Promise(r => setTimeout(r, 120));
-    } catch(e) { item.cover = ''; }
-  }
-  if (updated > 0) { saveLibrary(); renderList(); showNotif(`🎬 ${updated} jaquettes chargées !`); }
-}
+
 
 function finalizeImport(imported, event, label) {
   const importedIds = new Set(imported.map(c=>c.id));
@@ -1566,7 +1529,7 @@ function renderList() {
         <div class="cd-artist">${cd.artist||'Artiste inconnu'}</div>
         <div class="cd-meta">
           ${cd.mediaType?`<span class="cd-tag" style="color:var(--accent2);border-color:rgba(255,107,53,0.3);background:rgba(255,107,53,0.08)">${cd.mediaType}</span>`:''}
-          ${cd.genre?`<span class="cd-tag genre">${cd.genre}</span>`:''}
+          ${cd.genre && cd.genre !== cd.mediaType?`<span class="cd-tag genre">${cd.genre}</span>`:''}
           ${cd.year?`<span class="cd-tag year">${cd.year}</span>`:''}
           ${cd.tracks?.length?`<span class="cd-tag">${cd.tracks.length} pistes</span>`:''}
           ${cd.runtime?`<span class="cd-tag">⏱ ${cd.runtime}min</span>`:''}
