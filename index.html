@@ -25,8 +25,16 @@
   .search-input:focus{border-color:var(--accent);}.search-input::placeholder{color:var(--muted);}
   .btn-icon{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px;color:var(--text);cursor:pointer;font-size:16px;display:flex;align-items:center;transition:all .2s;}
   .btn-icon.active{background:var(--accent);color:#000;border-color:var(--accent);}
-  .filter-bar{display:none;padding:0 20px 12px;gap:8px;flex-wrap:wrap;flex-shrink:0;}.filter-bar.open{display:flex;}
-  .filter-chip{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;color:var(--muted);transition:all .2s;}
+  /* ── Onglets bibliothèque ── */
+  .lib-tabs{display:flex;padding:0 20px 0;gap:0;overflow-x:auto;scrollbar-width:none;flex-shrink:0;border-bottom:1px solid var(--border);}
+  .lib-tabs::-webkit-scrollbar{display:none;}
+  .lib-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:'Syne',sans-serif;font-size:13px;font-weight:600;cursor:pointer;padding:10px 14px;white-space:nowrap;transition:all .2s;margin-bottom:-1px;}
+  .lib-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  /* ── Chips de genre ── */
+  .filter-bar{padding:8px 20px 4px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex-shrink:0;flex-wrap:nowrap;}
+  .filter-bar::-webkit-scrollbar{display:none;}
+  .filter-bar.hidden{display:none;}
+  .filter-chip{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer;color:var(--muted);transition:all .2s;white-space:nowrap;flex-shrink:0;}
   .filter-chip.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600;}
   .sort-bar{padding:0 20px 8px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex-shrink:0;}
   .sort-bar::-webkit-scrollbar{display:none;}
@@ -154,19 +162,23 @@
     <div class="header-stats"><strong id="total-count">…</strong>médias</div>
   </div>
   <div class="search-wrap">
-    <input class="search-input" id="search-input" placeholder="Rechercher artiste, titre…" oninput="onSearch()" onkeydown="onSearchSubmit(event)">
-    <button class="btn-icon" id="filter-toggle" onclick="toggleFilter()">⚙</button>
+    <input class="search-input" id="search-input" placeholder="Rechercher titre, artiste…" oninput="onSearch()" onkeydown="onSearchSubmit(event)">
   </div>
-  <div class="filter-bar" id="filter-bar">
-    <div class="filter-chip active" onclick="setGenre('')" data-genre="">Tous</div>
-    <div class="filter-chip" onclick="setFavsOnly()" id="favs-chip">⭐ Favoris</div>
+  <div class="lib-tabs" id="lib-tabs">
+    <button class="lib-tab active" onclick="setLib('')" id="lib-all">Tous</button>
+    <button class="lib-tab" onclick="setLib('music')" id="lib-music">🎵 Musique</button>
+    <button class="lib-tab" onclick="setLib('video')" id="lib-video">🎬 Vidéo</button>
+    <button class="lib-tab" onclick="setLib('books')" id="lib-books">📚 Livres</button>
+    <button class="lib-tab" onclick="setLib('bd')" id="lib-bd">🎨 BD</button>
+    <button class="lib-tab" onclick="setLib('favs')" id="lib-favs">⭐</button>
   </div>
+  <div class="filter-bar hidden" id="filter-bar"></div>
   <div class="sort-bar">
     <button class="sort-btn active" onclick="setSort('title')" id="sort-title">Titre</button>
     <button class="sort-btn" onclick="setSort('artist')" id="sort-artist">Artiste</button>
     <button class="sort-btn" onclick="setSort('year')" id="sort-year">Année</button>
     <button class="sort-btn" onclick="setSort('genre')" id="sort-genre">Genre</button>
-    <button class="sort-btn" onclick="setSort('mediaType')" id="sort-mediaType">Type</button>
+    <button class="sort-btn" onclick="setSort('mediaType')" id="sort-mediaType">Support</button>
     <button class="sort-btn" onclick="setSort('added')" id="sort-added">Récents</button>
   </div>
   <div class="scroll-area">
@@ -433,7 +445,7 @@
 // ═══ ÉTAT ════════════════════════════════════════════════
 const STORAGE_KEY = 'arkiv-v1';
 let cds = [], filtered = [], allGenres = [];
-let currentSort = 'title', currentGenre = '', favsOnly = false;
+let currentSort = 'title', currentLib = '', currentGenre = '';
 let editingId = null, currentDetailId = null, nextId = 1;
 let page = 0;
 const PAGE_SIZE = 50;
@@ -1314,66 +1326,49 @@ function prefillForm(cd) {
 }
 
 // ═══ LISTE ════════════════════════════════════════════════
-let currentMediaType = '';
 const MUSIC_TYPES = ['CD','Vinyle','MP3'];
 const VIDEO_TYPES = ['DVD','Blu-ray','Série'];
-const BOOK_TYPES  = ['Livre','Roman','BD','Manga','Comics'];
+const BOOK_TYPES  = ['Livre','Roman'];
+const BD_TYPES    = ['BD','Manga','Comics'];
+
+// Retourne les items de la bibliothèque active
+function libItems() {
+  if (currentLib === 'music') return cds.filter(c => MUSIC_TYPES.includes(c.mediaType||'CD'));
+  if (currentLib === 'video') return cds.filter(c => VIDEO_TYPES.includes(c.mediaType||''));
+  if (currentLib === 'books') return cds.filter(c => BOOK_TYPES.includes(c.mediaType||''));
+  if (currentLib === 'bd')    return cds.filter(c => BD_TYPES.includes(c.mediaType||''));
+  if (currentLib === 'favs')  return cds.filter(c => c.fav);
+  return cds;
+}
 
 function renderGenreChips() {
   const bar = document.getElementById('filter-bar');
-  // Détermine quels médias sont visibles selon le type actif
-  const visibleCds = currentMediaType === 'music' ? cds.filter(c => MUSIC_TYPES.includes(c.mediaType||'CD'))
-    : currentMediaType === 'video' ? cds.filter(c => VIDEO_TYPES.includes(c.mediaType||''))
-    : currentMediaType === 'books' ? cds.filter(c => BOOK_TYPES.includes(c.mediaType||''))
-    : cds;
-  // Genres présents dans les médias visibles
-  const genresInView = [...new Set(visibleCds.map(c=>c.genre).filter(Boolean))].sort();
-
-  bar.innerHTML = `
-    <div class="filter-chip${!currentMediaType && !currentGenre && !favsOnly ? ' active' : ''}" onclick="resetFilters()" data-genre="">Tous</div>
-    <div class="filter-chip${favsOnly ? ' active' : ''}" onclick="setFavsOnly()" id="favs-chip">⭐ Favoris</div>
-    <div class="filter-chip${currentMediaType==='music' ? ' active' : ''}" onclick="setMediaType('music')" id="mtype-music">🎵 Musique</div>
-    <div class="filter-chip${currentMediaType==='video' ? ' active' : ''}" onclick="setMediaType('video')" id="mtype-video">🎬 Vidéo</div>
-    <div class="filter-chip${currentMediaType==='books' ? ' active' : ''}" onclick="setMediaType('books')" id="mtype-books">📚 Livres</div>`;
-  genresInView.slice(0, 12).forEach(g => {
-    const c = document.createElement('div');
-    c.className = 'filter-chip' + (currentGenre === g ? ' active' : '');
-    c.dataset.genre = g; c.textContent = g;
-    c.onclick = () => setGenre(g); bar.appendChild(c);
-  });
+  const items = libItems();
+  // Genres réels présents dans la bibliothèque active (exclut les valeurs = mediaType pour BD)
+  const genres = [...new Set(items.map(c => c.genre).filter(g => g && !BD_TYPES.includes(g) || currentLib === 'bd'))].sort();
+  if (!genres.length || currentLib === 'favs' || currentLib === '') {
+    bar.classList.add('hidden'); return;
+  }
+  bar.classList.remove('hidden');
+  bar.innerHTML = `<div class="filter-chip${!currentGenre ? ' active' : ''}" onclick="setGenre('')">Tous</div>`
+    + genres.map(g => `<div class="filter-chip${currentGenre===g?' active':''}" onclick="setGenre('${g}')">${g}</div>`).join('');
 }
 
-function resetFilters() {
-  currentMediaType = ''; currentGenre = ''; favsOnly = false;
+function setLib(lib) {
+  currentLib = lib; currentGenre = '';
+  document.querySelectorAll('.lib-tab').forEach(t => t.classList.remove('active'));
+  const tabId = {'':`lib-all`, music:`lib-music`, video:`lib-video`, books:`lib-books`, bd:`lib-bd`, favs:`lib-favs`}[lib];
+  document.getElementById(tabId)?.classList.add('active');
   renderGenreChips(); renderList();
-}
-function setMediaType(mtype) {
-  if (currentMediaType === mtype) mtype = '';
-  currentMediaType = mtype;
-  favsOnly = false;
-  currentGenre = '';
-  // Désactive TOUS les chips d'abord
-  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
-  // Active le bon bouton
-  if (mtype === 'music') document.getElementById('mtype-music')?.classList.add('active');
-  else if (mtype === 'video') document.getElementById('mtype-video')?.classList.add('active');
-  else if (mtype === 'books') document.getElementById('mtype-books')?.classList.add('active');
-  else document.querySelector('.filter-chip[data-genre=""]')?.classList.add('active');
-  renderList();
 }
 
 function applyFilter() {
   const q = document.getElementById('search-input').value.toLowerCase().trim();
-  filtered = cds.filter(cd => {
-    const m = !q || cd.title.toLowerCase().includes(q) || (cd.artist||'').toLowerCase().includes(q) || (cd.genre||'').toLowerCase().includes(q) || (cd.notes||'').toLowerCase().includes(q);
-    const genreMatch = !currentGenre || (cd.genre||'').split(',').map(g=>g.trim()).includes(currentGenre) || (cd.genre||'').includes(currentGenre);
-    const favMatch = !favsOnly || cd.fav;
-    const mt = cd.mediaType || 'CD';
-    const typeMatch = !currentMediaType ||
-      (currentMediaType==='music' && MUSIC_TYPES.includes(mt)) ||
-      (currentMediaType==='video' && VIDEO_TYPES.includes(mt)) ||
-      (currentMediaType==='books' && BOOK_TYPES.includes(mt));
-    return m && genreMatch && favMatch && typeMatch;
+  const base = libItems();
+  filtered = base.filter(cd => {
+    const m = !q || cd.title.toLowerCase().includes(q) || (cd.artist||'').toLowerCase().includes(q) || (cd.genre||'').toLowerCase().includes(q) || (cd.notes||'').toLowerCase().includes(q) || (cd.summary||'').toLowerCase().includes(q);
+    const genreMatch = !currentGenre || (cd.genre||'') === currentGenre || (cd.genre||'').split(',').map(g=>g.trim()).includes(currentGenre);
+    return m && genreMatch;
   });
   filtered.sort((a,b) => {
     if(currentSort==='title') return a.title.localeCompare(b.title,'fr');
@@ -1390,9 +1385,10 @@ function applyFilter() {
 function renderList() {
   applyFilter();
   const countEl = document.getElementById('total-count');
-  countEl.textContent = filtered.length !== cds.length
-    ? filtered.length + ' / ' + cds.length
-    : cds.length;
+  const libTotal = libItems().length;
+  countEl.textContent = (currentGenre || document.getElementById('search-input').value.trim())
+    ? filtered.length + ' / ' + libTotal
+    : libTotal;
   const list = document.getElementById('cd-list');
   if (!filtered.length) {
     list.innerHTML = `<div class="empty-state"><div class="big">${cds.length?'🔍':'📂'}</div><p>${cds.length?'Aucun résultat.':'Importez votre catalogue CSV<br>ou scannez un code-barres.'}</p></div>`;
@@ -1538,17 +1534,8 @@ function onSearchSubmit(e) {
   }
 }
 function setSort(s) { currentSort=s; document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active')); document.getElementById('sort-'+s)?.classList.add('active'); renderList(); }
-function toggleFilter() { document.getElementById('filter-bar').classList.toggle('open'); document.getElementById('filter-toggle').classList.toggle('active'); }
 function setGenre(g) {
-  if (currentGenre === g) g = '';
-  favsOnly = false;
-  currentGenre = g;
-  renderGenreChips();
-  renderList();
-}
-function setFavsOnly() {
-  favsOnly = !favsOnly;
-  currentGenre = '';
+  currentGenre = currentGenre === g ? '' : g;
   renderGenreChips();
   renderList();
 }
