@@ -502,10 +502,14 @@ async function loadLibrary() {
         renderGenreChips();
         showNotif(`📚 ${cds.length} médias chargés`);
         // Résout en arrière-plan les couvertures encore en attente
-        // Limité à 50 par session pour ne pas surcharger (les suivantes seront traitées aux sessions suivantes)
+        // Limité à 50 par session pour ne pas surcharger
         const STARTUP_LIMIT = 50;
         const pendingTmdb = cds.filter(c => (c.cover||'').startsWith('__tmdb__')).slice(0, STARTUP_LIMIT);
-        const pendingOL   = cds.filter(c => (c.cover||'').startsWith('__ol__')).slice(0, STARTUP_LIMIT);
+        // BD/Manga sans couverture : soit placeholder __ol__, soit cover vide avec un ISBN dans extId
+        const pendingOL = cds.filter(c =>
+          ['BD','Manga'].includes(c.mediaType) &&
+          (c.cover||'') === '' || (c.cover||'').startsWith('__ol__')
+        ).filter(c => c.extId).slice(0, STARTUP_LIMIT);
         if (pendingTmdb.length) setTimeout(() => resolveTmdbCovers(pendingTmdb), 2000);
         if (pendingOL.length)   setTimeout(() => resolveOLCovers(pendingOL), 2000);
       }
@@ -998,10 +1002,18 @@ function resolveOLCovers(items) {
   let updated = 0;
   cds.forEach(item => {
     if (!idSet.has(item.id)) return;
-    if (!(item.cover||'').startsWith('__ol__')) return;
-    const isbn = item.cover.replace('__ol__', '');
-    item.cover = isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg` : '';
-    updated++;
+    // Cas 1 : placeholder __ol__<isbn>
+    if ((item.cover||'').startsWith('__ol__')) {
+      const isbn = item.cover.replace('__ol__', '').replace(/-/g, '');
+      item.cover = isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg` : '';
+      updated++;
+    }
+    // Cas 2 : cover vide mais ISBN présent dans extId (données importées avant la correction)
+    else if ((item.cover||'') === '' && item.extId) {
+      const isbn = item.extId.replace(/-/g, '');
+      item.cover = `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`;
+      updated++;
+    }
   });
   if (updated > 0) { saveLibrary(); renderList(); }
 }
