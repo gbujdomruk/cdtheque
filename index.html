@@ -1278,62 +1278,73 @@ async function lookupBarcode(code) {
   } catch(e) { console.warn('Discogs error', e); }
 
   // ══ 2. TMDB par code-barres (DVD/Blu-ray) ════════════
-  // Stratégie : UPCItemDB (gratuit, sans clé) → nom du produit → TMDB
+  // Stratégie A : TMDB /find avec external_source=upc_id (EAN/UPC natif)
+  // Stratégie B : si A échoue, recherche TMDB par le code EAN comme mot-clé
   const tmdbKey = localStorage.getItem('tmdb_api_key') || '';
   if (tmdbKey && !isISBN) {
     try {
       showScanStatus('searching', '🔍 Recherche du film/série…');
-      // UPCItemDB : base de données produits par code-barres (100 req/jour gratuit)
-      const upcRes = await fetch(
-        `https://api.upcitemdb.com/prod/trial/lookup?upc=${cleanCode}`,
-        { headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' } }
+
+      // ── Stratégie A : endpoint /find (supporte EAN-13 nativement) ──
+      const findRes = await fetch(
+        `https://api.themoviedb.org/3/find/${cleanCode}?api_key=${tmdbKey}&external_source=upc_id&language=fr-FR`,
+        { headers: { 'Accept': 'application/json' } }
       );
-      if (upcRes.ok) {
-        const upcData = await upcRes.json();
-        if (upcData.items && upcData.items.length) {
-          const item = upcData.items[0];
-          // Nettoie le titre produit : enlève "DVD", "Blu-ray", "[Blu-ray]", etc.
-          let productTitle = (item.title || item.brand || '').trim();
-          productTitle = productTitle
-            .replace(/\[?(dvd|blu-?ray|4k|uhd|steelbook|edition|édition|collector|intégrale|saison|season|vol\.?\s*\d+)[^\]]*\]?/gi, '')
-            .replace(/\s+/g, ' ').trim();
-          if (productTitle.length > 2) {
-            const tmdbRes = await fetch(
-              `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(productTitle)}&language=fr-FR`,
+      if (findRes.ok) {
+        const findData = await findRes.json();
+        const movies = findData.movie_results || [];
+        const tvs    = findData.tv_results    || [];
+        const hit    = movies[0] || tvs[0];
+        if (hit) {
+          const isTV  = !!tvs[0] && !movies[0];
+          const title = hit.title || hit.name || '';
+          const year  = (hit.release_date || hit.first_air_date || '').slice(0, 4);
+          const cover = hit.poster_path ? `https://image.tmdb.org/t/p/w342${hit.poster_path}` : '';
+          const mediaType = isTV ? 'Série' : 'DVD';
+          let genre = '';
+          try {
+            const detRes = await fetch(
+              `https://api.themoviedb.org/3/${isTV?'tv':'movie'}/${hit.id}?api_key=${tmdbKey}&language=fr-FR`,
               { headers: { 'Accept': 'application/json' } }
             );
-            if (tmdbRes.ok) {
-              const tmdbData = await tmdbRes.json();
-              const results = (tmdbData.results||[])
-                .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
-                .slice(0, 1);
-              if (results.length) {
-                const m = results[0];
-                const isTV  = m.media_type === 'tv';
-                const title = m.title || m.name || '';
-                const year  = (m.release_date || m.first_air_date || '').slice(0,4);
-                const cover = m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : '';
-                const mediaType = isTV ? 'Série' : 'DVD';
-                // Récupère les genres TMDB
-                let genre = '';
-                try {
-                  const detRes = await fetch(
-                    `https://api.themoviedb.org/3/${isTV?'tv':'movie'}/${m.id}?api_key=${tmdbKey}&language=fr-FR`,
-                    { headers: { 'Accept': 'application/json' } }
-                  );
-                  if (detRes.ok) {
-                    const det = await detRes.json();
-                    genre = det.genres?.[0]?.name || '';
-                  }
-                } catch(e) {}
-                showFoundResult({title, artist:'', year: year ? parseInt(year) : null, genre, mediaType, cover, discogs:'', extId:String(m.id), summary:m.overview||'', code, source:'TMDB'});
-                return;
-              }
-            }
-          }
+            if (detRes.ok) { const det = await detRes.json(); genre = det.genres?.[0]?.name || ''; }
+          } catch(e) {}
+          showFoundResult({title, artist:'', year: year ? parseInt(year) : null, genre, mediaType, cover, discogs:'', extId:String(hit.id), summary:hit.overview||'', code, source:'TMDB'});
+          return;
         }
       }
-    } catch(e) { console.warn('UPCItemDB/TMDB error', e); }
+
+      // ── Stratégie B : le code EAN en recherche plein-texte ──
+      // Certains DVDs ont leur EAN indexé comme mot-clé dans TMDB
+      const searchRes = await fetch(
+        `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${cleanCode}&language=fr-FR`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const results = (searchData.results || [])
+          .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+          .slice(0, 1);
+        if (results.length) {
+          const m = results[0];
+          const isTV  = m.media_type === 'tv';
+          const title = m.title || m.name || '';
+          const year  = (m.release_date || m.first_air_date || '').slice(0, 4);
+          const cover = m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : '';
+          const mediaType = isTV ? 'Série' : 'DVD';
+          let genre = '';
+          try {
+            const detRes = await fetch(
+              `https://api.themoviedb.org/3/${isTV?'tv':'movie'}/${m.id}?api_key=${tmdbKey}&language=fr-FR`,
+              { headers: { 'Accept': 'application/json' } }
+            );
+            if (detRes.ok) { const det = await detRes.json(); genre = det.genres?.[0]?.name || ''; }
+          } catch(e) {}
+          showFoundResult({title, artist:'', year: year ? parseInt(year) : null, genre, mediaType, cover, discogs:'', extId:String(m.id), summary:m.overview||'', code, source:'TMDB'});
+          return;
+        }
+      }
+    } catch(e) { console.warn('TMDB error', e); }
   }
 
   // ══ 3. MUSICBRAINZ (fallback musique) ════════════════
