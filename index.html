@@ -1378,9 +1378,12 @@ function pickTmdbResult(i) {
   confirmAddCD(cd);
 }
 
+// Résultat courant du scanner — évite tout JSON dans les onclick
+let _scanResult = null;
+
 function showFoundResult(cd) {
+  _scanResult = cd;
   showScanStatus('found', '✅ Média identifié !');
-  const cdJson = JSON.stringify(cd).replace(/"/g,'&quot;');
   document.getElementById('scan-result-wrap').innerHTML = `
     <div class="scan-result-card">
       ${cd.cover
@@ -1388,13 +1391,13 @@ function showFoundResult(cd) {
         : `<div class="scan-result-img">💿</div>`}
       <div class="scan-result-info">
         <div class="scan-result-title">${cd.title || 'Titre inconnu'}</div>
-        <div class="scan-result-artist">${cd.artist || 'Artiste inconnu'}${cd.year ? ' · '+cd.year : ''}</div>
+        <div class="scan-result-artist">${cd.artist || ''}${cd.year ? ' · '+cd.year : ''}</div>
         <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:4px;">via ${cd.source}</div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:10px;">
-      <button class="btn-action primary" onclick='confirmAddCD(${cdJson})'>➕ Ajouter</button>
-      <button class="btn-action" onclick='prefillForm(${cdJson})'>✏️ Modifier</button>
+      <button class="btn-action primary" onclick="confirmAddCD(_scanResult)">➕ Ajouter</button>
+      <button class="btn-action" onclick="prefillForm(_scanResult)">✏️ Modifier</button>
     </div>`;
 }
 
