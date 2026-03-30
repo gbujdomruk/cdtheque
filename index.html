@@ -1277,15 +1277,72 @@ async function lookupBarcode(code) {
     }
   } catch(e) { console.warn('Discogs error', e); }
 
-  // ══ 2. TMDB par code-barres (DVD/Blu-ray) ════════════
-  // Stratégie A : TMDB /find avec external_source=upc_id (EAN/UPC natif)
-  // Stratégie B : si A échoue, recherche TMDB par le code EAN comme mot-clé
+  // ══ 2. DVD/Blu-ray — Wikidata (EAN/GTIN → TMDB/IMDb) ═════
+  // Wikidata stocke les EAN physiques des DVDs (P3962 = GTIN-13) avec leur
+  // ID TMDB (P4947) ou IMDb (P345). L'API SPARQL autorise les requêtes CORS.
   const tmdbKey = localStorage.getItem('tmdb_api_key') || '';
+  if (!isISBN) {
+    try {
+      showScanStatus('searching', '🔍 Recherche Wikidata (EAN)…');
+      const sparql = `
+        SELECT ?item ?itemLabel ?tmdbId ?imdbId ?year ?genreLabel WHERE {
+          ?item wdt:P3962 "${cleanCode}" .
+          OPTIONAL { ?item wdt:P4947 ?tmdbId }
+          OPTIONAL { ?item wdt:P345  ?imdbId }
+          OPTIONAL { ?item wdt:P577  ?pubDate }
+          OPTIONAL { ?item wdt:P136  ?genre }
+          BIND(YEAR(?pubDate) AS ?year)
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en" }
+        } LIMIT 1`;
+      const wdRes = await fetch(
+        `https://query.wikidata.org/sparql?query=${encodeURIComponent(sparql)}`,
+        { headers: { 'Accept': 'application/sparql-results+json', 'User-Agent': 'Arkiv/1.0' } }
+      );
+      if (wdRes.ok) {
+        const wdData = await wdRes.json();
+        const bindings = wdData.results?.bindings || [];
+        if (bindings.length) {
+          const b = bindings[0];
+          const title   = b.itemLabel?.value || '';
+          const tmdbId  = b.tmdbId?.value  || '';
+          const imdbId  = b.imdbId?.value  || '';
+          const year    = b.year?.value ? parseInt(b.year.value) : null;
+          const genre   = b.genreLabel?.value || '';
+          // Si on a un ID TMDB et une clé → récupère l'affiche et le synopsis
+          if (tmdbId && tmdbKey) {
+            try {
+              const detRes = await fetch(
+                `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${tmdbKey}&language=fr-FR`,
+                { headers: { 'Accept': 'application/json' } }
+              );
+              if (detRes.ok) {
+                const det = await detRes.json();
+                const cover = det.poster_path ? `https://image.tmdb.org/t/p/w342${det.poster_path}` : '';
+                const g = det.genres?.[0]?.name || genre;
+                const isTV = false; // Wikidata distingue films/séries, on reste DVD par défaut
+                showFoundResult({title: det.title || title, artist:'', year: det.release_date ? parseInt(det.release_date) : year, genre:g, mediaType:'DVD', cover, discogs:'', extId:tmdbId, summary:det.overview||'', code, source:'Wikidata + TMDB'});
+                return;
+              }
+            } catch(e) {}
+          }
+          // Sinon on affiche ce qu'on a (titre + année depuis Wikidata)
+          if (title) {
+            showFoundResult({title, artist:'', year, genre, mediaType:'DVD', cover:'', discogs:'', extId:tmdbId||imdbId, summary:'', code, source:'Wikidata'});
+            return;
+          }
+        }
+      }
+    } catch(e) { console.warn('Wikidata error', e); }
+  }
+
+  // ══ 3. TMDB par code-barres (DVD/Blu-ray) — fallback ═════
+  // Stratégie A : TMDB /find avec external_source=upc_id
+  // Stratégie B : si A échoue, recherche TMDB par le code EAN comme mot-clé
   if (tmdbKey && !isISBN) {
     try {
-      showScanStatus('searching', '🔍 Recherche du film/série…');
+      showScanStatus('searching', '🔍 Recherche TMDB…');
 
-      // ── Stratégie A : endpoint /find (supporte EAN-13 nativement) ──
+      // ── Stratégie A : endpoint /find ──
       const findRes = await fetch(
         `https://api.themoviedb.org/3/find/${cleanCode}?api_key=${tmdbKey}&external_source=upc_id&language=fr-FR`,
         { headers: { 'Accept': 'application/json' } }
@@ -1310,37 +1367,6 @@ async function lookupBarcode(code) {
             if (detRes.ok) { const det = await detRes.json(); genre = det.genres?.[0]?.name || ''; }
           } catch(e) {}
           showFoundResult({title, artist:'', year: year ? parseInt(year) : null, genre, mediaType, cover, discogs:'', extId:String(hit.id), summary:hit.overview||'', code, source:'TMDB'});
-          return;
-        }
-      }
-
-      // ── Stratégie B : le code EAN en recherche plein-texte ──
-      // Certains DVDs ont leur EAN indexé comme mot-clé dans TMDB
-      const searchRes = await fetch(
-        `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${cleanCode}&language=fr-FR`,
-        { headers: { 'Accept': 'application/json' } }
-      );
-      if (searchRes.ok) {
-        const searchData = await searchRes.json();
-        const results = (searchData.results || [])
-          .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
-          .slice(0, 1);
-        if (results.length) {
-          const m = results[0];
-          const isTV  = m.media_type === 'tv';
-          const title = m.title || m.name || '';
-          const year  = (m.release_date || m.first_air_date || '').slice(0, 4);
-          const cover = m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : '';
-          const mediaType = isTV ? 'Série' : 'DVD';
-          let genre = '';
-          try {
-            const detRes = await fetch(
-              `https://api.themoviedb.org/3/${isTV?'tv':'movie'}/${m.id}?api_key=${tmdbKey}&language=fr-FR`,
-              { headers: { 'Accept': 'application/json' } }
-            );
-            if (detRes.ok) { const det = await detRes.json(); genre = det.genres?.[0]?.name || ''; }
-          } catch(e) {}
-          showFoundResult({title, artist:'', year: year ? parseInt(year) : null, genre, mediaType, cover, discogs:'', extId:String(m.id), summary:m.overview||'', code, source:'TMDB'});
           return;
         }
       }
