@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Arkiv">
 <link rel="manifest" href="manifest.json">
@@ -1262,8 +1263,13 @@ async function lookupBarcode(code) {
   } catch(e) { console.warn('MusicBrainz fallback error', e); }
 
 
-  // ── Google Books + Open Library (ISBN livres) ──────
-  try {
+  // ── Google Books + Open Library (ISBN livres uniquement) ──────
+  // Un ISBN commence par 978 ou 979 — ne pas tenter pour les UPC de DVD/CD
+  if (!cleanCode.startsWith('978') && !cleanCode.startsWith('979')) {
+    showScanStatus('notfound', '❌ Code-barres non reconnu. Cherchez par titre :');
+    // (suite gérée par le bloc notfound ci-dessous — on skip Google Books)
+  }
+  if (cleanCode.startsWith('978') || cleanCode.startsWith('979')) try {
     const isbn = cleanCode;
     const gbKey = localStorage.getItem('gbooks_api_key') || '';
     const gbUrl = gbKey
