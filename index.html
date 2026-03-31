@@ -2008,6 +2008,7 @@ function clearGcseKeys() {
   localStorage.removeItem('gcse_cx');
   renderTokenStatus(); showNotif('🔍 Google Custom Search effacé');
 }
+function savePlexUrl() {
   const u = document.getElementById('plex-url-input').value.trim();
   if (!u) { showNotif('⚠️ URL vide'); return; }
   localStorage.setItem('plex_url', u);
