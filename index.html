@@ -382,29 +382,6 @@
       </div>
 
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;">
-        <div style="font-size:13px;font-weight:700;margin-bottom:6px;">🔍 Google Custom Search (DVDs européens)</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:10px;">
-          Permet d'identifier les DVDs européens introuvables ailleurs en cherchant leur EAN sur Google.<br>
-          <strong style="color:var(--text)">Étape 1</strong> — Clé API : <a href="https://console.cloud.google.com/" target="_blank" style="color:var(--accent);">console.cloud.google.com</a> → Activer "Custom Search API" → Identifiants → Clé API<br>
-          <strong style="color:var(--text)">Étape 2</strong> — Search Engine ID : <a href="https://programmablesearchengine.google.com/" target="_blank" style="color:var(--accent);">programmablesearchengine.google.com</a> → Créer → recherche sur tout le web → copier l'ID (cx)<br>
-          Gratuit jusqu'à <strong style="color:var(--text)">100 recherches/jour</strong>.
-        </div>
-        <div id="gcse-status" style="font-family:'Space Mono',monospace;font-size:11px;padding:8px 12px;border-radius:8px;margin-bottom:10px;"></div>
-        <div class="form-group" style="margin-bottom:10px;">
-          <div class="form-label">CLÉ API GOOGLE</div>
-          <input class="form-input" id="gcse-key-input" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="form-group" style="margin-bottom:10px;">
-          <div class="form-label">SEARCH ENGINE ID (cx)</div>
-          <input class="form-input" id="gcse-cx-input" placeholder="12345678901234567890:xxxxxxxxxx" autocomplete="off" spellcheck="false">
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn-action primary" onclick="saveGcseKeys()" style="flex:2;">💾 Enregistrer</button>
-          <button class="btn-action danger" onclick="clearGcseKeys()" style="flex:1;">Effacer</button>
-        </div>
-      </div>
-
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;">
         <div style="font-size:13px;font-weight:700;margin-bottom:6px;">📖 Clé API Google Books (livres)</div>
         <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:10px;">
           Pour identifier les livres par ISBN. Gratuit sur <strong style="color:var(--text)">console.cloud.google.com</strong>.
@@ -1323,88 +1300,73 @@ async function lookupBarcode(code) {
     }
   } catch(e) { console.warn('Discogs error', e); }
 
-  // ══ 2. DVD/Blu-ray (codes non-ISBN) ══════════════════════
-  // Cascade : UPCitemdb → Google CSE → TMDB /find → recherche manuelle
-  const tmdbKey   = localStorage.getItem('tmdb_api_key')    || '';
-  const gcseKey   = localStorage.getItem('gcse_api_key')    || '';
-  const gcseId    = localStorage.getItem('gcse_cx')         || '';
-
-  // Fonction partagée : titre trouvé → TMDB → résultat
-  async function titleToTmdb(productTitle, source) {
-    if (!productTitle || productTitle.length < 2) return false;
-    if (!tmdbKey) {
-      prefillForm({title:productTitle, artist:'', year:null, genre:'', cover:'', mediaType:'DVD', notes:`Code-barres: ${code}`});
-      showNotif(`📦 "${productTitle}" identifié — complétez les infos`);
-      return true;
-    }
-    showScanStatus('searching', `🔍 "${productTitle}" — recherche TMDB…`);
-    try {
-      const tmdbRes = await fetch(
-        `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(productTitle)}&language=fr-FR`,
-        { headers: { 'Accept': 'application/json' } }
-      );
-      if (!tmdbRes.ok) return false;
-      const tmdbData = await tmdbRes.json();
-      const results = (tmdbData.results || []).filter(r => r.media_type === 'movie' || r.media_type === 'tv');
-      if (!results.length) return false;
-      const m = results[0];
-      const isTV     = m.media_type === 'tv';
-      const title    = m.title || m.name || '';
-      const year     = (m.release_date || m.first_air_date || '').slice(0, 4);
-      const cover    = m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : '';
-      const mediaType = isTV ? 'Série' : 'DVD';
-      let genre = '';
-      try {
-        const detRes = await fetch(
-          `https://api.themoviedb.org/3/${isTV?'tv':'movie'}/${m.id}?api_key=${tmdbKey}&language=fr-FR`,
-          { headers: { 'Accept': 'application/json' } }
-        );
-        if (detRes.ok) { const det = await detRes.json(); genre = det.genres?.[0]?.name || ''; }
-      } catch(e) {}
-      showFoundResult({title, artist:'', year: year ? parseInt(year) : null, genre, mediaType, cover, discogs:'', extId:String(m.id), summary:m.overview||'', code, source});
-      return true;
-    } catch(e) { return false; }
-  }
-
+  // ══ 2. DVD/Blu-ray — proxy worker → UPCItemDB → titre → TMDB ══
+  // Le worker appelle UPCItemDB côté serveur (pas de CORS), récupère le nom
+  // du produit, le nettoie, puis on cherche ce titre dans TMDB automatiquement.
+  const tmdbKey = localStorage.getItem('tmdb_api_key') || '';
   if (!isISBN) {
-    // ── Étape A : UPCitemdb via worker ──
     try {
       showScanStatus('searching', '🔍 Identification du produit…');
-      const res = await fetch(`${WORKER_URL}/barcode?upc=${cleanCode}`, { headers: { 'Accept': 'application/json' } });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.title && await titleToTmdb(data.title, 'UPCitemdb + TMDB')) return;
+      const barcodeRes = await fetch(
+        `${WORKER_URL}/barcode?upc=${cleanCode}`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (barcodeRes.ok) {
+        const barcodeData = await barcodeRes.json();
+        const productTitle = barcodeData.title || '';
+        if (productTitle.length > 1 && tmdbKey) {
+          showScanStatus('searching', `🔍 "${productTitle}" trouvé — recherche TMDB…`);
+          const tmdbRes = await fetch(
+            `https://api.themoviedb.org/3/search/multi?api_key=${tmdbKey}&query=${encodeURIComponent(productTitle)}&language=fr-FR`,
+            { headers: { 'Accept': 'application/json' } }
+          );
+          if (tmdbRes.ok) {
+            const tmdbData = await tmdbRes.json();
+            const results = (tmdbData.results || [])
+              .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+              .slice(0, 1);
+            if (results.length) {
+              const m = results[0];
+              const isTV = m.media_type === 'tv';
+              const title = m.title || m.name || '';
+              const year  = (m.release_date || m.first_air_date || '').slice(0, 4);
+              const cover = m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : '';
+              const mediaType = isTV ? 'Série' : 'DVD';
+              let genre = '';
+              try {
+                const detRes = await fetch(
+                  `https://api.themoviedb.org/3/${isTV?'tv':'movie'}/${m.id}?api_key=${tmdbKey}&language=fr-FR`,
+                  { headers: { 'Accept': 'application/json' } }
+                );
+                if (detRes.ok) { const det = await detRes.json(); genre = det.genres?.[0]?.name || ''; }
+              } catch(e) {}
+              showFoundResult({title, artist:'', year: year ? parseInt(year) : null, genre, mediaType, cover, discogs:'', extId:String(m.id), summary:m.overview||'', code, source:'TMDB'});
+              return;
+            }
+          }
+        } else if (productTitle.length > 1 && !tmdbKey) {
+          // Pas de clé TMDB mais on a le titre — on pré-remplit le formulaire
+          prefillForm({title:productTitle, artist:'', year:null, genre:'', cover:'', mediaType:'DVD', notes:`Code-barres: ${code}`});
+          showNotif(`📦 "${productTitle}" identifié — complétez les infos`);
+          return;
+        }
       }
     } catch(e) { console.warn('Worker /barcode error', e); }
 
-    // ── Étape B : Google Custom Search via worker (EAN → titre depuis le web) ──
-    if (gcseKey && gcseId) {
-      try {
-        showScanStatus('searching', '🔍 Recherche Google…');
-        const res = await fetch(
-          `${WORKER_URL}/gsearch?upc=${cleanCode}&key=${encodeURIComponent(gcseKey)}&cx=${encodeURIComponent(gcseId)}`,
-          { headers: { 'Accept': 'application/json' } }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (data.title && await titleToTmdb(data.title, 'Google + TMDB')) return;
-        }
-      } catch(e) { console.warn('Worker /gsearch error', e); }
-    }
-
-    // ── Étape C : TMDB /find avec external_source=upc_id (codes nord-américains) ──
+    // ── Fallback : TMDB /find avec upc_id ──
     if (tmdbKey) {
       try {
-        showScanStatus('searching', '🔍 Recherche TMDB…');
-        const res = await fetch(
+        const findRes = await fetch(
           `https://api.themoviedb.org/3/find/${cleanCode}?api_key=${tmdbKey}&external_source=upc_id&language=fr-FR`,
           { headers: { 'Accept': 'application/json' } }
         );
-        if (res.ok) {
-          const data  = await res.json();
-          const hit   = (data.movie_results || [])[0] || (data.tv_results || [])[0];
+        if (findRes.ok) {
+          const findData = await findRes.json();
+          const movies = findData.movie_results || [];
+          const tvs    = findData.tv_results    || [];
+          const hit    = movies[0] || tvs[0];
           if (hit) {
-            const isTV  = !data.movie_results?.[0];
+            const isTV  = !!tvs[0] && !movies[0];
             const title = hit.title || hit.name || '';
             const year  = (hit.release_date || hit.first_air_date || '').slice(0, 4);
             const cover = hit.poster_path ? `https://image.tmdb.org/t/p/w342${hit.poster_path}` : '';
@@ -1930,17 +1892,6 @@ function renderTokenStatus() {
     if (btnConnect) btnConnect.style.display = 'flex';
     if (btnDisconnect) btnDisconnect.style.display = 'none';
   }
-  // Google CSE
-  const gcseEl = document.getElementById('gcse-status');
-  if (gcseEl) {
-    const gcseKey = localStorage.getItem('gcse_api_key') || '';
-    const gcseCx  = localStorage.getItem('gcse_cx')     || '';
-    const gcseOk  = gcseKey && gcseCx;
-    gcseEl.style.cssText = gcseOk ? ok : warn;
-    gcseEl.textContent   = gcseOk
-      ? '✅ Google Custom Search configuré'
-      : '⚠️ Non configuré — DVDs européens moins bien identifiés';
-  }
   // TMDB
   const tmdbEl = document.getElementById('tmdb-status');
   if (tmdbEl) {
@@ -1993,21 +1944,7 @@ function clearGbooksKey() {
   localStorage.removeItem('gbooks_api_key');
   renderTokenStatus(); showNotif('📖 Clé Google Books effacée');
 }
-function saveGcseKeys() {
-  const k = document.getElementById('gcse-key-input').value.trim();
-  const cx = document.getElementById('gcse-cx-input').value.trim();
-  if (!k || !cx) { showNotif('⚠️ Clé et Search Engine ID requis'); return; }
-  localStorage.setItem('gcse_api_key', k);
-  localStorage.setItem('gcse_cx', cx);
-  document.getElementById('gcse-key-input').value = '';
-  document.getElementById('gcse-cx-input').value = '';
-  renderTokenStatus(); showNotif('🔍 Google Custom Search configuré !');
-}
-function clearGcseKeys() {
-  localStorage.removeItem('gcse_api_key');
-  localStorage.removeItem('gcse_cx');
-  renderTokenStatus(); showNotif('🔍 Google Custom Search effacé');
-}
+function savePlexUrl() {
   const u = document.getElementById('plex-url-input').value.trim();
   if (!u) { showNotif('⚠️ URL vide'); return; }
   localStorage.setItem('plex_url', u);
