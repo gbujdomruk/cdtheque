@@ -614,22 +614,25 @@ function parseCSVLine(line){const r=[];let cur='',inQ=false;for(let i=0;i<line.l
 // ═══ DÉTECTION AUTOMATIQUE DU FORMAT CSV ════════════════
 function detectFormat(headerLine, isTsv) {
   const h = headerLine.toLowerCase();
-  // BDthèque : TSV avec colonnes françaises
+  // Nouveau format BD/Manga : CSV UTF-8 avec colonnes scenaristes/dessinateurs
+  if (h.includes('scenaristes') || h.includes('dessinateurs')) return 'bd_csv';
+  // BDthèque (ancien format) : TSV avec colonnes françaises
   if (isTsv && (h.includes('série') || h.includes('tome') || h.includes('éditeur'))) return 'bd';
-  // MusicBuddy : colonnes spécifiques — testé AVANT MovieBuddy car "content type" existe dans les deux
+  // MusicBuddy
   if (h.includes('discogs release id') || (h.includes('tracks') && h.includes('artist'))) return 'music';
-  // MovieBuddy : colonnes vraiment spécifiques (pas "content type" seul qui existe aussi dans MusicBuddy)
+  // MovieBuddy
   if (h.includes('tmdb id') || h.includes('directors') || (h.includes('content type') && !h.includes('discogs') && !h.includes('tracks'))) return 'movie';
-  // BookBuddy : colonnes spécifiques
+  // BookBuddy
   if (h.includes('number of pages') || h.includes('year published') || h.includes('author')) return 'book';
-  return null; // format inconnu
+  return null;
 }
 
 const FORMAT_LABELS = {
-  music: '🎵 MusicBuddy — Albums, CDs, vinyles',
-  movie: '🎬 MovieBuddy — Films, séries, DVD, Blu-ray',
-  book:  '📚 BookBuddy — Romans, livres',
-  bd:    '🎨 BDthèque — BD, mangas, comics',
+  music:  '🎵 MusicBuddy — Albums, CDs, vinyles',
+  movie:  '🎬 MovieBuddy — Films, séries, DVD, Blu-ray',
+  book:   '📚 BookBuddy — Romans, livres',
+  bd:     '🎨 BDthèque (ancien, TSV) — BD, mangas',
+  bd_csv: '🎨 BD/Manga CSV — avec scénaristes & dessinateurs',
 };
 
 let _pendingImportEvent = null;
@@ -678,6 +681,7 @@ function confirmImport(format) {
   else if (format === 'movie') importMovieCSV(ev);
   else if (format === 'book') importBookCSV(ev);
   else if (format === 'bd') importBdCSV(ev);
+  else if (format === 'bd_csv') importBdCsvNew(ev);
 }
 
 // ═══ IMPORT CSV ══════════════════════════════════════════
@@ -1042,6 +1046,85 @@ function importBdCSV(event) {
     }, 50);
   };
   reader.readAsText(file, 'UTF-16LE');
+}
+
+// ═══ IMPORT BD/MANGA CSV (nouveau format avec auteurs) ═══
+function importBdCsvNew(event) {
+  const file = event.target.files[0]; if(!file) return;
+  document.getElementById('import-progress').style.display = 'block';
+  document.getElementById('progress-fill').style.width = '5%';
+  document.getElementById('load-status').textContent = 'Lecture du fichier BD/Manga…';
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('progress-fill').style.width = '35%';
+    setTimeout(() => {
+      try {
+        let text = e.target.result;
+        // Supprime le BOM UTF-8 si présent
+        if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+        const lines = text.split('\n').filter(l => l.trim());
+        const header = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+        const idx = {
+          isbn:        header.indexOf('isbn'),
+          serie:       header.indexOf('serie'),
+          tome:        header.indexOf('tome'),
+          titre:       header.indexOf('titre_album'),
+          scenaristes: header.indexOf('scenaristes'),
+          dessinateurs:header.indexOf('dessinateurs'),
+          editeur:     header.indexOf('editeur'),
+          annee:       header.indexOf('annee'),
+          // 'source' et 'source_correction' ignorés volontairement
+        };
+        document.getElementById('progress-fill').style.width = '60%';
+        document.getElementById('load-status').textContent = `Analyse de ${lines.length-1} BD/Mangas…`;
+        const imported = [];
+        const MANGA_PUBS = ['pika','glénat manga','kana','ki-oon','tonkam','kurokawa','doki-doki','soleil manga','delcourt manga','akata','kazé','mana books','bamboo panda'];
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const p = parseCSVLine(lines[i]);
+          const isbn        = (idx.isbn>=0        ? p[idx.isbn]||''        : '').trim();
+          const serie       = (idx.serie>=0       ? p[idx.serie]||''       : '').trim();
+          const tome        = (idx.tome>=0        ? p[idx.tome]||''        : '').trim();
+          const titreAlbum  = (idx.titre>=0       ? p[idx.titre]||''       : '').trim();
+          const scenaristes = (idx.scenaristes>=0 ? p[idx.scenaristes]||'' : '').trim();
+          const dessinateurs= (idx.dessinateurs>=0? p[idx.dessinateurs]||'': '').trim();
+          const editeur     = (idx.editeur>=0     ? p[idx.editeur]||''     : '').toLowerCase().trim();
+          const annee       = (idx.annee>=0       ? parseInt(p[idx.annee]) : null) || null;
+          // Construction du titre : Série T.N : Titre album
+          const title = serie
+            ? (tome
+                ? serie + ' T.' + tome + (titreAlbum && titreAlbum !== serie ? ' : ' + titreAlbum : '')
+                : serie)
+            : titreAlbum;
+          if (!title) continue;
+          // Détection manga/BD
+          const isManga = MANGA_PUBS.some(pub => editeur.includes(pub));
+          const mediaType = isManga ? 'Manga' : 'BD';
+          // Auteur principal affiché dans la liste : scénariste en priorité
+          const artist = scenaristes || dessinateurs || serie || '';
+          // Notes : éditeur
+          const notes = editeur ? 'Éditeur : ' + editeur : '';
+          // ISBN nettoyé (sans tirets) pour la couverture Open Library
+          const isbnClean = isbn.replace(/-/g, '');
+          imported.push({
+            id: nextId++,
+            title, artist, year: annee, genre: mediaType, mediaType,
+            scenaristes, dessinateurs,
+            cover: isbnClean ? '__ol__' + isbnClean : '',
+            notes, discogs: '', extId: isbn, summary: '',
+            tracks: [], runtime: null,
+            fav: false, rating: 0, added: i
+          });
+        }
+        finalizeImport(imported, event, 'BD/Mangas');
+        resolveOLCovers(imported);
+      } catch(err) {
+        document.getElementById('load-status').textContent = "Erreur lors de l'import.";
+        console.error(err);
+      }
+    }, 50);
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 // Résout les couvertures BD/Manga via Open Library (sans requête réseau préalable)
@@ -1690,7 +1773,7 @@ function showFoundResult(cd) {
 function confirmAddCD(cd) {
   const exists = cds.some(c => c.title.toLowerCase()===cd.title.toLowerCase() && c.artist.toLowerCase()===cd.artist.toLowerCase());
   if (exists && !confirm(`"${cd.title}" est peut-être déjà dans votre collection. Ajouter quand même ?`)) return;
-  cds.unshift({id:nextId++, title:cd.title, artist:cd.artist, year:cd.year||null, genre:cd.genre||'', mediaType:cd.mediaType||'CD', cover:cd.cover||'', notes:cd.notes||'', discogs:cd.discogs||'', extId:cd.extId||'', summary:cd.summary||'', tracks:[], fav:false, rating:0, added:nextId});
+  cds.unshift({id:nextId++, title:cd.title, artist:cd.artist, year:cd.year||null, genre:cd.genre||'', mediaType:cd.mediaType||'CD', cover:cd.cover||'', notes:cd.notes||'', discogs:cd.discogs||'', extId:cd.extId||'', summary:cd.summary||'', scenaristes:cd.scenaristes||'', dessinateurs:cd.dessinateurs||'', tracks:[], fav:false, rating:0, added:nextId});
   saveLibrary();
   showNotif('✅ Média ajouté !');
   document.getElementById('scan-result-wrap').innerHTML = '';
@@ -1755,7 +1838,7 @@ function applyFilter() {
   const q = document.getElementById('search-input').value.toLowerCase().trim();
   const base = libItems();
   filtered = base.filter(cd => {
-    const m = !q || cd.title.toLowerCase().includes(q) || (cd.artist||'').toLowerCase().includes(q) || (cd.genre||'').toLowerCase().includes(q) || (cd.notes||'').toLowerCase().includes(q) || (cd.summary||'').toLowerCase().includes(q);
+    const m = !q || cd.title.toLowerCase().includes(q) || (cd.artist||'').toLowerCase().includes(q) || (cd.genre||'').toLowerCase().includes(q) || (cd.notes||'').toLowerCase().includes(q) || (cd.summary||'').toLowerCase().includes(q) || (cd.scenaristes||'').toLowerCase().includes(q) || (cd.dessinateurs||'').toLowerCase().includes(q);
     const genreMatch = !currentGenre || (cd.genre||'') === currentGenre || (cd.genre||'').split(',').map(g=>g.trim()).includes(currentGenre);
     return m && genreMatch;
   });
@@ -1791,7 +1874,13 @@ function renderList() {
         : `<div style="font-size:28px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">${getEmoji(cd.genre, cd.mediaType)}</div>`}</div>
       <div class="cd-info">
         <div class="cd-title">${cd.title||'Sans titre'}</div>
-        <div class="cd-artist">${cd.artist||'Artiste inconnu'}</div>
+        <div class="cd-artist">${
+          BD_TYPES.includes(cd.mediaType||'') && (cd.scenaristes||cd.dessinateurs)
+            ? (cd.scenaristes && cd.dessinateurs && cd.scenaristes !== cd.dessinateurs
+                ? '✏️ '+cd.scenaristes+' · 🎨 '+cd.dessinateurs
+                : cd.scenaristes || cd.dessinateurs)
+            : (cd.artist||'Artiste inconnu')
+        }</div>
         <div class="cd-meta">
           ${cd.mediaType?`<span class="cd-tag" style="color:var(--accent2);border-color:rgba(255,107,53,0.3);background:rgba(255,107,53,0.08)">${cd.mediaType}</span>`:''}
           ${cd.genre && cd.genre !== cd.mediaType?`<span class="cd-tag genre">${cd.genre}</span>`:''}
@@ -1818,9 +1907,20 @@ function showDetail(id) {
   currentDetailId = id;
   document.getElementById('detail-header-title').textContent = cd.artist;
   document.getElementById('detail-title').textContent = cd.title;
-  const artistLabel = VIDEO_TYPES.includes(cd.mediaType||'') ? 'Réal. : ' : 
-    BOOK_TYPES.includes(cd.mediaType||'') ? '' : '';
-  document.getElementById('detail-artist').textContent = artistLabel + (cd.artist||'');
+  let artistLine = '';
+  if (BD_TYPES.includes(cd.mediaType||'')) {
+    if (cd.scenaristes && cd.dessinateurs && cd.scenaristes !== cd.dessinateurs)
+      artistLine = '✏️ ' + cd.scenaristes + '  ·  🎨 ' + cd.dessinateurs;
+    else if (cd.scenaristes || cd.dessinateurs)
+      artistLine = cd.scenaristes || cd.dessinateurs;
+    else
+      artistLine = cd.artist || '';
+  } else if (VIDEO_TYPES.includes(cd.mediaType||'')) {
+    artistLine = cd.artist ? 'Réal. : ' + cd.artist : '';
+  } else {
+    artistLine = cd.artist || '';
+  }
+  document.getElementById('detail-artist').textContent = artistLine;
   document.getElementById('detail-fav-btn').textContent = cd.fav?'⭐':'☆';
   const cw = document.getElementById('detail-cover-wrap');
   const validCover = cd.cover && !cd.cover.startsWith('__tmdb__') && !cd.cover.startsWith('__ol__');
@@ -1849,6 +1949,23 @@ function showDetail(id) {
   let extraHtml = '';
   if(cd.runtime) extraHtml += `<div style="font-size:13px;color:var(--muted);margin-top:8px;">⏱ ${cd.runtime} min</div>`;
   if(cd.summary) extraHtml += `<div style="font-size:13px;color:var(--muted);margin-top:10px;line-height:1.6;">${cd.summary}</div>`;
+  // Détails BD : scénariste / dessinateur / ISBN / éditeur
+  if (BD_TYPES.includes(cd.mediaType||'')) {
+    if (cd.scenaristes && cd.dessinateurs && cd.scenaristes !== cd.dessinateurs) {
+      extraHtml += `<div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.8;">
+        <span style="color:var(--text);">✏️ Scénariste :</span> ${cd.scenaristes}<br>
+        <span style="color:var(--text);">🎨 Dessinateur :</span> ${cd.dessinateurs}
+      </div>`;
+    } else if (cd.scenaristes || cd.dessinateurs) {
+      extraHtml += `<div style="font-size:12px;color:var(--muted);margin-top:8px;">
+        <span style="color:var(--text);">✏️🎨 Auteur :</span> ${cd.scenaristes||cd.dessinateurs}
+      </div>`;
+    }
+    if (cd.extId) {
+      const isbnClean = cd.extId.replace(/-/g,'');
+      extraHtml += `<a class="discogs-link" href="https://www.bedetheque.com/search-albums?RechISBN=${isbnClean}" target="_blank" style="margin-top:8px;">🔗 Voir sur Bedetheque</a>`;
+    }
+  }
   if(cd.extId && cd.extId.startsWith('tt')) {
     extraHtml += `<a class="discogs-link" href="https://www.imdb.com/title/${cd.extId}" target="_blank" style="margin-top:8px;">🎬 Voir sur IMDB</a>`;
   } else if(cd.extId && !isNaN(cd.extId) && VIDEO_TYPES.includes(cd.mediaType||'')) {
