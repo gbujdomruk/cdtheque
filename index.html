@@ -1127,24 +1127,74 @@ function importBdCsvNew(event) {
   reader.readAsText(file, 'UTF-8');
 }
 
-// Résout les couvertures BD/Manga via Open Library (sans requête réseau préalable)
-// Les items sont des références directes aux objets de cds — la modification est immédiate
+// Résout les couvertures BD/Manga — chaîne de sources multiples
+// Conserve le placeholder __ol__ISBN qui est résolu à l'affichage
 function resolveOLCovers(items) {
-  let updated = 0;
-  items.forEach(item => {
-    // Récupère l'ISBN depuis le placeholder ou depuis extId
-    let isbn = '';
-    if ((item.cover||'').startsWith('__ol__')) {
-      isbn = item.cover.replace('__ol__', '');
-    } else if (item.extId) {
-      isbn = item.extId;
-    }
-    isbn = isbn.replace(/-/g, '');
-    if (!isbn) return;
+  // Ne fait rien — la résolution est gérée dynamiquement dans le rendu
+  // afin de pouvoir enchaîner les sources si l'une échoue
+  saveLibrary(); renderList();
+}
+
+// Détecte si une image Open Library est vide (1x1 px transparent)
+// et bascule vers Google Books, puis BnF
+function fixCover(img, isbn) {
+  if (!isbn) return;
+  if (img.naturalWidth <= 1 || img.naturalHeight <= 1) {
+    // OL vide → essaie Google Books (sans clé API)
+    const gbUrl = `https://books.google.com/books/content?vid=ISBN${isbn}&printsec=frontcover&img=1&zoom=1&source=gbs_api`;
+    img.onerror = () => {
+      // Google Books vide → essaie BnF
+      const bnfUrl = `https://catalogue.bnf.fr/couverture?&appName=NE&idArk=&isbn=${isbn}&callback=`;
+      img.onerror = () => showCoverFallback(img);
+      img.onload  = () => { if (img.naturalWidth <= 1) showCoverFallback(img); };
+      img.src = bnfUrl;
+    };
+    img.onload = () => { if (img.naturalWidth <= 1) img.onerror(); };
+    img.src = gbUrl;
+  }
+}
+
+function showCoverFallback(img) {
+  const card = img.closest('.cd-cover, .detail-cover-placeholder, [class*="cover"]');
+  if (card) card.innerHTML = '<div style="font-size:28px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">🎨</div>';
+  else img.style.display = 'none';
+}
+
+// Résolution active (bouton Réglages) : Google Books API pour toutes les BD sans couverture
+async function resolveAllBdCovers() {
+  const gbKey = localStorage.getItem('gbooks_api_key') || '';
+  const toBatch = cds.filter(c =>
+    BD_TYPES.includes(c.mediaType||'') &&
+    c.extId &&
+    (!c.cover || c.cover.startsWith('__ol__') || c.cover.startsWith('__tmdb__'))
+  );
+  if (!toBatch.length) { showNotif('✅ Pas de couvertures manquantes'); return; }
+  showNotif(`🖼 Résolution de ${toBatch.length} couvertures…`);
+  let found = 0;
+  for (const item of toBatch) {
+    const isbn = item.extId.replace(/-/g,'');
+    if (!isbn) continue;
+    // 1. Essaie Open Library
     item.cover = `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`;
-    updated++;
-  });
-  if (updated > 0) { saveLibrary(); renderList(); }
+    // 2. Si Google Books disponible : vérifie et enrichit
+    if (gbKey) {
+      try {
+        const res = await fetch(
+          `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${gbKey}&fields=items(volumeInfo/imageLinks)`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const thumb = data.items?.[0]?.volumeInfo?.imageLinks;
+          const url = (thumb?.large || thumb?.medium || thumb?.thumbnail || '').replace('http:','https:').replace('zoom=1','zoom=2');
+          if (url) { item.cover = url; found++; }
+        }
+      } catch(e) {}
+      await new Promise(r => setTimeout(r, 80));
+    } else { found++; }
+  }
+  saveLibrary(); renderList();
+  showNotif(`🖼 ${found} couvertures récupérées !`);
 }
 
 // Résout les jaquettes TMDB en arrière-plan (sans bloquer l'UI)
@@ -1869,9 +1919,17 @@ function renderList() {
   const totalPages = Math.ceil(filtered.length/PAGE_SIZE);
   list.innerHTML = filtered.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map(cd => `
     <div class="cd-card" onclick="showDetail(${cd.id})">
-      <div class="cd-cover${['BD','Manga','Comics','DVD','Blu-ray','Série','Livre','Roman'].includes(cd.mediaType) ? ' portrait' : ''}">${cd.cover && !cd.cover.startsWith('__tmdb__') && !cd.cover.startsWith('__ol__')
-        ? `<img src="${cd.cover}" alt="" onerror="this.parentElement.innerHTML='<div style=font-size:24px>${getEmoji(cd.genre, cd.mediaType)}</div>'">`
-        : `<div style="font-size:28px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">${getEmoji(cd.genre, cd.mediaType)}</div>`}</div>
+      <div class="cd-cover${['BD','Manga','Comics','DVD','Blu-ray','Série','Livre','Roman'].includes(cd.mediaType) ? ' portrait' : ''}">${(() => {
+        const raw = cd.cover || '';
+        const isbn = cd.extId ? cd.extId.replace(/-/g,'') : '';
+        let url = '';
+        if (raw && !raw.startsWith('__tmdb__')) {
+          url = raw.startsWith('__ol__') ? `https://covers.openlibrary.org/b/isbn/${raw.slice(6)}-M.jpg` : raw;
+        }
+        return url
+          ? `<img src="${url}" alt="" onload="fixCover(this,'${isbn}')" onerror="this.parentElement.innerHTML='<div style=font-size:24px>${getEmoji(cd.genre, cd.mediaType)}</div>'">`
+          : `<div style="font-size:28px;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">${getEmoji(cd.genre, cd.mediaType)}</div>`;
+      })()}</div>
       <div class="cd-info">
         <div class="cd-title">${cd.title||'Sans titre'}</div>
         <div class="cd-artist">${
